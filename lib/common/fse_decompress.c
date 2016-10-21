@@ -127,8 +127,8 @@ size_t FSE_buildDTable(FSE_DTable* dt, const short* normalizedCounter, unsigned 
     U32 highThreshold = tableSize-1;
 
     /* Sanity Checks */
-    if (maxSymbolValue > FSE_MAX_SYMBOL_VALUE) return ERROR(maxSymbolValue_tooLarge);
-    if (tableLog > FSE_MAX_TABLELOG) return ERROR(tableLog_tooLarge);
+    if (UNLIKELY(maxSymbolValue > FSE_MAX_SYMBOL_VALUE)) return ERROR(maxSymbolValue_tooLarge);
+    if (UNLIKELY(tableLog > FSE_MAX_TABLELOG)) return ERROR(tableLog_tooLarge);
 
     /* Init, lay down lowprob symbols */
     {   FSE_DTableHeader DTableH;
@@ -158,7 +158,7 @@ size_t FSE_buildDTable(FSE_DTable* dt, const short* normalizedCounter, unsigned 
                 position = (position + step) & tableMask;
                 while (position > highThreshold) position = (position + step) & tableMask;   /* lowprob area */
         }   }
-        if (position!=0) return ERROR(GENERIC);   /* position must reach all cells once, otherwise normalizedCounter is incorrect */
+        if (UNLIKELY(position!=0)) return ERROR(GENERIC);   /* position must reach all cells once, otherwise normalizedCounter is incorrect */
     }
 
     /* Build Decoding table */
@@ -209,7 +209,7 @@ size_t FSE_buildDTable_raw (FSE_DTable* dt, unsigned nbBits)
     unsigned s;
 
     /* Sanity checks */
-    if (nbBits < 1) return ERROR(GENERIC);         /* min size */
+    if (UNLIKELY(nbBits < 1)) return ERROR(GENERIC);         /* min size */
 
     /* Build Decoding Table */
     DTableH->tableLog = (U16)nbBits;
@@ -268,14 +268,14 @@ FORCE_INLINE size_t FSE_decompress_usingDTable_generic(
     /* tail */
     /* note : BIT_reloadDStream(&bitD) >= FSE_DStream_partiallyFilled; Ends at exactly BIT_DStream_completed */
     while (1) {
-        if (op>(omax-2)) return ERROR(dstSize_tooSmall);
+        if (UNLIKELY(op>(omax-2))) return ERROR(dstSize_tooSmall);
         *op++ = FSE_GETSYMBOL(&state1);
         if (BIT_reloadDStream(&bitD)==BIT_DStream_overflow) {
             *op++ = FSE_GETSYMBOL(&state2);
             break;
         }
 
-        if (op>(omax-2)) return ERROR(dstSize_tooSmall);
+        if (UNLIKELY(op>(omax-2))) return ERROR(dstSize_tooSmall);
         *op++ = FSE_GETSYMBOL(&state2);
         if (BIT_reloadDStream(&bitD)==BIT_DStream_overflow) {
             *op++ = FSE_GETSYMBOL(&state1);
@@ -309,12 +309,12 @@ size_t FSE_decompress(void* dst, size_t maxDstSize, const void* cSrc, size_t cSr
     unsigned tableLog;
     unsigned maxSymbolValue = FSE_MAX_SYMBOL_VALUE;
 
-    if (cSrcSize<2) return ERROR(srcSize_wrong);   /* too small input size */
+    if (UNLIKELY(cSrcSize<2)) return ERROR(srcSize_wrong);   /* too small input size */
 
     /* normal FSE decoding mode */
     {   size_t const NCountLength = FSE_readNCount (counting, &maxSymbolValue, &tableLog, istart, cSrcSize);
         if (FSE_isError(NCountLength)) return NCountLength;
-        if (NCountLength >= cSrcSize) return ERROR(srcSize_wrong);   /* too small input size */
+        if (UNLIKELY(NCountLength >= cSrcSize)) return ERROR(srcSize_wrong);   /* too small input size */
         ip += NCountLength;
         cSrcSize -= NCountLength;
     }

@@ -126,7 +126,7 @@ size_t ZBUFF_compressInit_advanced(ZBUFF_CCtx* zbc,
             zbc->inBuffSize = neededInBuffSize;
             zbc->customMem.customFree(zbc->customMem.opaque, zbc->inBuff);   /* should not be necessary */
             zbc->inBuff = (char*)zbc->customMem.customAlloc(zbc->customMem.opaque, neededInBuffSize);
-            if (zbc->inBuff == NULL) return ERROR(memory_allocation);
+            if (UNLIKELY(zbc->inBuff == NULL)) return ERROR(memory_allocation);
         }
         zbc->blockSize = MIN(ZSTD_BLOCKSIZE_ABSOLUTEMAX, neededInBuffSize);
     }
@@ -134,7 +134,7 @@ size_t ZBUFF_compressInit_advanced(ZBUFF_CCtx* zbc,
         zbc->outBuffSize = ZSTD_compressBound(zbc->blockSize)+1;
         zbc->customMem.customFree(zbc->customMem.opaque, zbc->outBuff);   /* should not be necessary */
         zbc->outBuff = (char*)zbc->customMem.customAlloc(zbc->customMem.opaque, zbc->outBuffSize);
-        if (zbc->outBuff == NULL) return ERROR(memory_allocation);
+        if (UNLIKELY(zbc->outBuff == NULL)) return ERROR(memory_allocation);
     }
 
     { size_t const errorCode = ZSTD_compressBegin_advanced(zbc->zc, dict, dictSize, params, pledgedSrcSize);

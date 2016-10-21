@@ -44,6 +44,22 @@ extern "C" {
 typedef ZSTD_ErrorCode ERR_enum;
 #define PREFIX(name) ZSTD_error_##name
 
+#ifdef LIKELY
+#  undef LIKELY
+#endif
+#ifdef UNLIKELY
+#  undef UNLIKELY
+#endif
+
+#if defined(__GNUC__) && __GNUC__ >= 4
+#  define LIKELY(x) (__builtin_expect((x), 1))
+#  define UNLIKELY(x) (__builtin_expect((x), 0))
+#else
+#  define LIKELY(x) (x)
+#  define UNLIKELY(x) (x)
+#endif
+
+
 
 /*-****************************************
 *  Error codes handling
@@ -53,7 +69,7 @@ typedef ZSTD_ErrorCode ERR_enum;
 #endif
 #define ERROR(name) ((size_t)-PREFIX(name))
 
-ERR_STATIC unsigned ERR_isError(size_t code) { return (code > ERROR(maxCode)); }
+ERR_STATIC unsigned ERR_isError(size_t code) { return UNLIKELY(code > ERROR(maxCode)); }
 
 ERR_STATIC ERR_enum ERR_getErrorCode(size_t code) { if (!ERR_isError(code)) return (ERR_enum)0; return (ERR_enum) (0-code); }
 

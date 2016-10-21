@@ -78,10 +78,10 @@ size_t FSE_readNCount (short* normalizedCounter, unsigned* maxSVPtr, unsigned* t
     unsigned charnum = 0;
     int previous0 = 0;
 
-    if (hbSize < 4) return ERROR(srcSize_wrong);
+    if (UNLIKELY(hbSize < 4)) return ERROR(srcSize_wrong);
     bitStream = MEM_readLE32(ip);
     nbBits = (bitStream & 0xF) + FSE_MIN_TABLELOG;   /* extract tableLog */
-    if (nbBits > FSE_TABLELOG_ABSOLUTE_MAX) return ERROR(tableLog_tooLarge);
+    if (UNLIKELY(nbBits > FSE_TABLELOG_ABSOLUTE_MAX)) return ERROR(tableLog_tooLarge);
     bitStream >>= 4;
     bitCount = 4;
     *tableLogPtr = nbBits;
@@ -108,7 +108,7 @@ size_t FSE_readNCount (short* normalizedCounter, unsigned* maxSVPtr, unsigned* t
             }
             n0 += bitStream & 3;
             bitCount += 2;
-            if (n0 > *maxSVPtr) return ERROR(maxSymbolValue_tooSmall);
+            if (UNLIKELY(n0 > *maxSVPtr)) return ERROR(maxSymbolValue_tooSmall);
             while (charnum < n0) normalizedCounter[charnum++] = 0;
             if ((ip <= iend-7) || (ip + (bitCount>>3) <= iend-4)) {
                 ip += bitCount>>3;
@@ -147,8 +147,8 @@ size_t FSE_readNCount (short* normalizedCounter, unsigned* maxSVPtr, unsigned* t
             }
             bitStream = MEM_readLE32(ip) >> (bitCount & 31);
     }   }   /* while ((remaining>1) & (charnum<=*maxSVPtr)) */
-    if (remaining != 1) return ERROR(corruption_detected);
-    if (bitCount > 32) return ERROR(corruption_detected);
+    if (UNLIKELY(remaining != 1)) return ERROR(corruption_detected);
+    if (UNLIKELY(bitCount > 32)) return ERROR(corruption_detected);
     *maxSVPtr = charnum-1;
 
     ip += (bitCount+7)>>3;
@@ -176,8 +176,8 @@ size_t HUF_readStats(BYTE* huffWeight, size_t hwSize, U32* rankStats,
     if (iSize >= 128) {  /* special header */
         oSize = iSize - 127;
         iSize = ((oSize+1)/2);
-        if (iSize+1 > srcSize) return ERROR(srcSize_wrong);
-        if (oSize >= hwSize) return ERROR(corruption_detected);
+        if (UNLIKELY(iSize+1 > srcSize)) return ERROR(srcSize_wrong);
+        if (UNLIKELY(oSize >= hwSize)) return ERROR(corruption_detected);
         ip += 1;
         {   U32 n;
             for (n=0; n<oSize; n+=2) {
@@ -185,7 +185,7 @@ size_t HUF_readStats(BYTE* huffWeight, size_t hwSize, U32* rankStats,
                 huffWeight[n+1] = ip[n/2] & 15;
     }   }   }
     else  {   /* header compressed with FSE (normal case) */
-        if (iSize+1 > srcSize) return ERROR(srcSize_wrong);
+        if (UNLIKELY(iSize+1 > srcSize)) return ERROR(srcSize_wrong);
         oSize = FSE_decompress(huffWeight, hwSize-1, ip+1, iSize);   /* max (hwSize-1) values decoded, as last one is implied */
         if (FSE_isError(oSize)) return oSize;
     }
@@ -194,27 +194,27 @@ size_t HUF_readStats(BYTE* huffWeight, size_t hwSize, U32* rankStats,
     memset(rankStats, 0, (HUF_TABLELOG_ABSOLUTEMAX + 1) * sizeof(U32));
     weightTotal = 0;
     {   U32 n; for (n=0; n<oSize; n++) {
-            if (huffWeight[n] >= HUF_TABLELOG_ABSOLUTEMAX) return ERROR(corruption_detected);
+            if (UNLIKELY(huffWeight[n] >= HUF_TABLELOG_ABSOLUTEMAX)) return ERROR(corruption_detected);
             rankStats[huffWeight[n]]++;
             weightTotal += (1 << huffWeight[n]) >> 1;
     }   }
 
     /* get last non-null symbol weight (implied, total must be 2^n) */
     {   U32 const tableLog = BIT_highbit32(weightTotal) + 1;
-        if (tableLog > HUF_TABLELOG_ABSOLUTEMAX) return ERROR(corruption_detected);
+        if (UNLIKELY(tableLog > HUF_TABLELOG_ABSOLUTEMAX)) return ERROR(corruption_detected);
         *tableLogPtr = tableLog;
         /* determine last weight */
         {   U32 const total = 1 << tableLog;
             U32 const rest = total - weightTotal;
             U32 const verif = 1 << BIT_highbit32(rest);
             U32 const lastWeight = BIT_highbit32(rest) + 1;
-            if (verif != rest) return ERROR(corruption_detected);    /* last value must be a clean power of 2 */
+            if (UNLIKELY(verif != rest)) return ERROR(corruption_detected);    /* last value must be a clean power of 2 */
             huffWeight[oSize] = (BYTE)lastWeight;
             rankStats[lastWeight]++;
     }   }
 
     /* check tree construction validity */
-    if ((rankStats[1] < 2) || (rankStats[1] & 1)) return ERROR(corruption_detected);   /* by construction : at least 2 elts of rank 1, must be even */
+    if (UNLIKELY((rankStats[1] < 2) || (rankStats[1] & 1))) return ERROR(corruption_detected);   /* by construction : at least 2 elts of rank 1, must be even */
 
     /* results */
     *nbSymbolsPtr = (U32)(oSize+1);
