@@ -37,7 +37,7 @@
 #  ifdef __GNUC__
 #    define FORCE_NOINLINE static __attribute__((__noinline__))
 #  else
-#    define FORCE_NOINLINE static
+#    define FORCE_NOINLINE static asdf
 #  endif
 #endif
 
