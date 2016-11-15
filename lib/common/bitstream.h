@@ -39,6 +39,17 @@
 extern "C" {
 #endif
 
+#ifndef FORCE_NOINLINE
+#ifdef _MSC_VER
+#  define FORCE_NOINLINE static __declspec(noinline)
+#else
+#  ifdef __GNUC__
+#    define FORCE_NOINLINE static __attribute__((__noinline__))
+#  else
+#    define FORCE_NOINLINE static
+#  endif
+#endif
+#endif
 
 /*
 *  This API consists of small unitary functions, which must be inlined for best performance.

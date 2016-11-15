@@ -38,6 +38,17 @@
 extern "C" {
 #endif
 
+#ifndef FORCE_NOINLINE
+#ifdef _MSC_VER
+#  define FORCE_NOINLINE static __declspec(noinline)
+#else
+#  ifdef __GNUC__
+#    define FORCE_NOINLINE static __attribute__((__noinline__))
+#  else
+#    define FORCE_NOINLINE static
+#  endif
+#endif
+#endif
 
 /* *** Dependencies *** */
 #include <stddef.h>    /* size_t */
@@ -217,6 +228,13 @@ size_t HUF_decompress1X_usingDTable(void* dst, size_t maxDstSize, const void* cS
 size_t HUF_decompress1X2_usingDTable(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
 size_t HUF_decompress1X4_usingDTable(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
 
+
+/* Internal */
+size_t HUF_decompress1X4_usingDTable_internal(void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
+size_t HUF_decompress4X4_usingDTable_internal(void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
+
+size_t HUF_decompress1X2_usingDTable_internal(void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
+size_t HUF_decompress4X2_usingDTable_internal(void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
 
 #endif /* HUF_STATIC_LINKING_ONLY */
 

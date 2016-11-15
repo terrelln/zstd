@@ -42,6 +42,8 @@ ZSTDDECOMP_FILES := $(ZSTDDIR)/decompress/huf_decompress.c
 ZSTD_FILES := $(ZSTDDECOMP_FILES) $(ZSTDCOMMON_FILES) $(ZSTDCOMP_FILES)
 ZDICT_FILES := $(ZSTDDIR)/dictBuilder/*.c
 ZSTDDECOMP_O = $(ZSTDDIR)/decompress/zstd_decompress.o
+HUFX1DECOMP_O := $(ZSTDDIR)/decompress/huf_decompressX1.o
+HUFX4DECOMP_O := $(ZSTDDIR)/decompress/huf_decompressX4.o
 
 ifeq ($(ZSTD_LEGACY_SUPPORT), 0)
 CPPFLAGS  += -DZSTD_LEGACY_SUPPORT=0
@@ -76,8 +78,19 @@ all: zstd
 
 $(ZSTDDECOMP_O): CFLAGS += $(ALIGN_LOOP)
 
+# $(HUFX1DECOMP_O): CC = gcc-6
+$(HUFX4DECOMP_O): CC = $(ALT_CC)
+
+zstd-alt-gcc: CC = clang-3.8
+zstd-alt-gcc: ALT_CC = gcc-6
+zstd-alt-gcc: clean zstd
+
+zstd-alt-clang: CC = gcc-6
+zstd-alt-clang: ALT_CC = clang-3.8
+zstd-alt-clang: clean zstd
+
 zstd  : CPPFLAGS += -DZSTD_LEGACY_SUPPORT=$(ZSTD_LEGACY_SUPPORT)
-zstd  : $(ZSTDDECOMP_O) $(ZSTD_FILES) $(ZSTDLEGACY_FILES) $(ZDICT_FILES) \
+zstd  : $(HUFX1DECOMP_O) $(HUFX4DECOMP_O) $(ZSTDDECOMP_O) $(ZSTD_FILES) $(ZSTDLEGACY_FILES) $(ZDICT_FILES) \
         zstdcli.c fileio.c bench.c datagen.c dibio.c
 ifneq (,$(filter Windows%,$(OS)))
 	windres\generate_res.bat
@@ -129,7 +142,7 @@ generate_res:
 
 clean:
 	$(MAKE) -C ../lib clean
-	@$(RM) $(ZSTDDIR)/decompress/*.o $(ZSTDDIR)/decompress/zstd_decompress.gcda
+	@$(RM) $(ZSTDDIR)/common/*.o $(ZSTDDIR)/decompress/*.o $(ZSTDDIR)/decompress/zstd_decompress.gcda
 	@$(RM) core *.o tmp* result* *.gcda dictionary *.zst \
         zstd$(EXT) zstd32$(EXT) zstd-compress$(EXT) zstd-decompress$(EXT) \
         *.gcda default.profraw
