@@ -519,6 +519,16 @@ MEM_STATIC void ZSTDv05_wildcopy(void* dst, const void* src, size_t length)
     while (op < oend);
 }
 
+MEM_STATIC void ZSTDv05_wildcopy_e(void* dst, const void* src, void* dstEnd)
+{
+    const BYTE* ip = (const BYTE*)src;
+    BYTE* op = (BYTE*)dst;
+    BYTE* const oend = (BYTE*)dstEnd;
+    do
+        COPY8(op, ip)
+    while (op < oend);
+}
+
 
 /*-*******************************************
 *  Private interfaces
@@ -3357,7 +3367,7 @@ static size_t ZSTDv05_execSequence(BYTE* op,
         while (op < oMatchEnd)
             *op++ = *match++;
     } else {
-        ZSTDv05_wildcopy(op, match, sequence.matchLength-8);   /* works even if matchLength < 8 */
+        ZSTDv05_wildcopy_e(op, match, oMatchEnd);   /* works even if matchLength < 8 */
     }
     return sequenceLength;
 }

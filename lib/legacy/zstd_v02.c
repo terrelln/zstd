@@ -2816,6 +2816,16 @@ static void ZSTD_wildcopy(void* dst, const void* src, size_t length)
     do COPY8(op, ip) while (op < oend);
 }
 
+static void ZSTD_wildcopy_e(void* dst, const void* src, void* dstEnd)
+{
+    const BYTE* ip = (const BYTE*)src;
+    BYTE* op = (BYTE*)dst;
+    BYTE* const oend = (BYTE*)dstEnd;
+    do
+        COPY8(op, ip)
+    while (op < oend);
+}
+
 
 /* **************************************
 *  Local structures
@@ -3218,7 +3228,7 @@ static size_t ZSTD_execSequence(BYTE* op,
         }
         else
         {
-            ZSTD_wildcopy(op, match, sequence.matchLength-8);   /* works even if matchLength < 8 */
+            ZSTD_wildcopy_e(op, match, oMatchEnd);   /* works even if matchLength < 8 */
         }
     }
 

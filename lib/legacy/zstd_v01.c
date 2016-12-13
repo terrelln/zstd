@@ -1362,6 +1362,16 @@ static void ZSTD_wildcopy(void* dst, const void* src, size_t length)
     while (op < oend) COPY8(op, ip);
 }
 
+static void ZSTD_wildcopy_e(void* dst, const void* src, void* dstEnd)
+{
+    const BYTE* ip = (const BYTE*)src;
+    BYTE* op = (BYTE*)dst;
+    BYTE* const oend = (BYTE*)dstEnd;
+    do
+        COPY8(op, ip)
+    while (op < oend);
+}
+
 static U16 ZSTD_readLE16(const void* memPtr)
 {
     if (ZSTD_isLittleEndian()) return ZSTD_read16(memPtr);
@@ -1814,7 +1824,7 @@ static size_t ZSTD_execSequence(BYTE* op,
             while (op<endMatch) *op++ = *match++;
         }
         else
-            ZSTD_wildcopy(op, match, sequence.matchLength-8);   /* works even if matchLength < 8 */
+            ZSTD_wildcopy_e(op, match, endMatch);   /* works even if matchLength < 8 */
 
         /* restore, in case of overlap */
         if (overlapRisk) memcpy(endMatch, saved, qutt);
