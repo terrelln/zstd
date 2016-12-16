@@ -47,7 +47,7 @@ SET(ROOT_DIR ../../..)
 
 # Define library directory, where sources and header files are located
 SET(LIBRARY_DIR ${ROOT_DIR}/lib)
-INCLUDE_DIRECTORIES(${LIBRARY_DIR} ${LIBRARY_DIR}/common)
+INCLUDE_DIRECTORIES(${LIBRARY_DIR} ${LIBRARY_DIR}/common ${LIBRARY_DIR}/deprecated)
 
 # Read file content
 FILE(READ ${LIBRARY_DIR}/zstd.h HEADER_CONTENT)
