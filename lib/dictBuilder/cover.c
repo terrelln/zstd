@@ -15,7 +15,6 @@ typedef double COVER_score_t;
 /*-*************************************
 *  Dependencies
 ***************************************/
-#include <math.h>   /* pow */
 #include <stdio.h>  /* fprintf */
 #include <stdlib.h> /* malloc, free, qsort */
 #include <string.h> /* memset */
@@ -36,19 +35,27 @@ typedef double COVER_score_t;
 /*-*************************************
 *  Console display
 ***************************************/
-// #define display(...)                                                           \
-//   {                                                                            \
-//     fprintf(stderr, __va_args__);                                              \
-//     fflush(stderr);                                                            \
-//   }
-// #define displaylevel(l, ...)                                                   \
-//   if (notificationlevel >= l) {                                                \
-//     display(__va_args__);                                                      \
-//   } /* 0 : no display;   1: errors;   2: default;  3: details;  4: debug */
-//
-// static clock_t zdict_clockspan(clock_t nprevious) {
-//   return clock() - nprevious;
-// }
+#define DISPLAY(...)                                                           \
+  {                                                                            \
+    fprintf(stderr, __va_args__);                                              \
+    fflush(stderr);                                                            \
+  }
+#define DISPLAYLEVEL(l, ...)                                                   \
+  if (notificationlevel >= l) {                                                \
+    DISPLAY(__va_args__);                                                      \
+  } /* 0 : no display;   1: errors;   2: default;  3: details;  4: debug */
+
+#define DISPLAYUPDATE(l, ...)                                                  \
+  if (g_displayLevel >= l) {                                                   \
+    if ((clock() - g_time > refreshRate) || (g_displayLevel >= 4)) {           \
+      g_time = clock();                                                        \
+      DISPLAY(__VA_ARGS__);                                                    \
+      if (g_displayLevel >= 4)                                                 \
+        fflush(stdout);                                                        \
+    }                                                                          \
+  }
+static const clock_t refreshRate = CLOCKS_PER_SEC * 15 / 100;
+static clock_t g_time = 0;
 
 static size_t COVER_sum(const size_t *samplesSizes, unsigned nbSamples) {
   size_t sum = 0;
@@ -73,8 +80,12 @@ typedef struct {
   U32 *freqs;
   U32 *dmerAt;
   U32 *activeDmers;
+  size_t size;
   COVER_params_t parameters;
 } COVER_ctx_t;
+
+/* We need a global context for qsort... */
+static COVER_ctx_t *g_ctx = NULL;
 
 static int COVER_cmp(void *opaque, const void *lp, const void *rp) {
   COVER_ctx_t *ctx = (COVER_ctx_t *)opaque;
@@ -83,8 +94,9 @@ static int COVER_cmp(void *opaque, const void *lp, const void *rp) {
   return memcmp(ctx->samples + lhs, ctx->samples + rhs, ctx->parameters.cover);
 }
 
-static int COVER_strict_cmp(void *opaque, const void *lp, const void *rp) {
-  int result = COVER_cmp(opaque, lp, rp);
+/* Don't forget to set g_ctx before use this */
+static int COVER_strict_cmp(const void *lp, const void *rp) {
+  int result = COVER_cmp(g_ctx, lp, rp);
   if (result == 0) {
     result = lp < rp ? -1 : 1;
   }
@@ -139,7 +151,6 @@ static void COVER_groupBy(const void *data, size_t count, size_t size,
                           void *opaque,
                           int (*cmp)(void *, const void *, const void *),
                           void (*grp)(void *, const void *, const void *)) {
-  /* TODO: Parallelize */
   const BYTE *ptr = (const BYTE *)data;
   size_t num = 0;
   while (num < count) {
@@ -167,7 +178,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
     COVER_segment_t bestSegment = {0, 0, 0};
     COVER_segment_t activeSegment = {begin, begin, 0};
     const size_t dmersInSegment = segmentSize - cover + 1;
-    memset(ctx->activeDmers, 0, (U32)1 << cover);
+    memset(ctx->activeDmers, 0, ctx->size);
 
     while (activeSegment.end < end) {
       U32 newDmer = ctx->dmerAt[activeSegment.end];
@@ -220,6 +231,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
   return globalBestSegment;
 }
 
+/* Not thread safe because qsort requires a global variable */
 ZDICTLIB_API size_t COVER_trainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
     const size_t *samplesSizes, size_t nbSamples, COVER_params_t parameters) {
@@ -251,8 +263,11 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
         NULL,
         dmerAt,
         activeDmers,
+        suffixSize,
         parameters,
     };
+    /* For qsort */
+    g_ctx = &ctx;
 
     /* Fill offsets */
     {
@@ -268,7 +283,7 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
       for (i = 0; i < suffixSize; ++i) {
         suffix[i] = i;
       }
-      qsort_r(suffix, suffixSize, sizeof(U32), &ctx, &COVER_strict_cmp);
+      qsort(suffix, suffixSize, sizeof(U32), &COVER_strict_cmp);
     }
     /* Compute frequencies for each dmer */
     ctx.freqs = suffix;
