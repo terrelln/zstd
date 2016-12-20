@@ -10,12 +10,7 @@
 /*-**************************************
 *  Tuning parameters
 ****************************************/
-typedef unsigned COVER_score_t;
-/* The norm to use when adding frequencies */
-#define COVER_NORM(frequency) (frequency)
-/* Normalize the score across all segment lengths */
-#define COVER_NORMALIZE_SCORE(segment)                                         \
-  (COVER_score_t)((segment).score / pow((segment).end - (segment).begin, 0.9))
+typedef double COVER_score_t;
 
 /*-*************************************
 *  Dependencies
@@ -164,6 +159,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
   const unsigned minSegment = ctx->parameters.minSegment;
   const unsigned maxSegment = ctx->parameters.maxSegment;
   const unsigned cover = ctx->parameters.cover;
+  const unsigned smoothing = ctx->parameters.smoothing;
   COVER_segment_t globalBestSegment = {0, 0, 0};
   U32 segmentSize;
   for (segmentSize = minSegment; segmentSize <= maxSegment;
@@ -178,7 +174,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
       U32 *newDmerOcc = ctx->activeDmers + newDmer;
       activeSegment.end += 1;
       if (*newDmerOcc == 0) {
-        activeSegment.score += COVER_NORM(ctx->freqs[newDmer]);
+        activeSegment.score += ctx->freqs[newDmer];
       }
       *newDmerOcc += 1;
 
@@ -188,7 +184,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
         activeSegment.begin += 1;
         *delDmerOcc -= 1;
         if (*delDmerOcc == 0) {
-          activeSegment.score -= COVER_NORM(ctx->freqs[delDmer]);
+          activeSegment.score -= ctx->freqs[delDmer];
         }
       }
 
@@ -209,7 +205,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
       }
       bestSegment.begin = newBegin;
       bestSegment.end = newEnd;
-      bestSegment.score = COVER_NORMALIZE_SCORE(bestSegment);
+      bestSegment.score /= (smoothing + (bestSegment.end - bestSegment.begin));
     }
     if (bestSegment.score > globalBestSegment.score) {
       globalBestSegment = bestSegment;

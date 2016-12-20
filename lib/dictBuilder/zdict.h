@@ -88,11 +88,11 @@ ZDICTLIB_API size_t ZDICT_trainFromBuffer_advanced(void* dictBuffer, size_t dict
 
 
 typedef struct {
+    unsigned smoothing;
     unsigned minSegment;
     unsigned step;
     unsigned maxSegment;
     unsigned cover;
-    unsigned dictID;
 } COVER_params_t;
 
 
