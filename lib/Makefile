@@ -87,6 +87,9 @@ libzstd : $(LIBZSTD)
 
 lib: libzstd.a libzstd
 
+dictBuilder/cover.o: dictBuilder/cover.c
+	$(CC) $(FLAGS) -Idictbuilder -c $^ -o $@
+
 clean:
 	@$(RM) core *.o *.a *.gcda *.$(SHARED_EXT) *.$(SHARED_EXT).* libzstd.pc dll/libzstd.dll dll/libzstd.lib
 	@$(RM) decompress/*.o

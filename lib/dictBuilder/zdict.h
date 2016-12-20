@@ -87,6 +87,20 @@ ZDICTLIB_API size_t ZDICT_trainFromBuffer_advanced(void* dictBuffer, size_t dict
                                 ZDICT_params_t parameters);
 
 
+typedef struct {
+    unsigned minSegment;
+    unsigned step;
+    unsigned maxSegment;
+    unsigned cover;
+    unsigned dictID;
+} COVER_params_t;
+
+
+ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCapacity,
+                                const void* samplesBuffer, const size_t* samplesSizes, size_t nbSamples,
+                                COVER_params_t parameters);
+
+
 /*! ZDICT_addEntropyTablesFromBuffer() :
 
     Given a content-only dictionary (built using any 3rd party algorithm),
