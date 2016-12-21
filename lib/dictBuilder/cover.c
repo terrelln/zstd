@@ -435,7 +435,7 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
     return ERROR(dstSize_tooSmall);
   }
   g_displayLevel = parameters.notificationLevel;
-  DISPLAYLEVEL(2, "Training on %zu samples of total size %zu\n", nbSamples,
+  DISPLAYLEVEL(2, "Training on %u samples of total size %zu\n", nbSamples,
                totalSamplesSize);
   {
     const size_t suffixSize = totalSamplesSize - parameters.d + 1;
