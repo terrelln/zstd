@@ -89,10 +89,13 @@ ZDICTLIB_API size_t ZDICT_trainFromBuffer_advanced(void* dictBuffer, size_t dict
 
 typedef struct {
     unsigned smoothing;
-    unsigned minSegment;
-    unsigned step;
-    unsigned maxSegment;
-    unsigned cover;
+    unsigned kMin;
+    unsigned kStep;
+    unsigned kMax;
+    unsigned d;
+    unsigned notificationLevel;  /* Write to stderr; 0 = none (default); 1 = errors; 2 = progression; 3 = details; 4 = debug; */
+    unsigned dictID;             /* 0 means auto mode (32-bits random value); other : force dictID value */
+    int      compressionLevel;   /* 0 means default; target a specific zstd compression level */
 } COVER_params_t;
 
 
@@ -117,7 +120,9 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCap
 ZDICTLIB_API size_t ZDICT_addEntropyTablesFromBuffer(void* dictBuffer, size_t dictContentSize, size_t dictBufferCapacity,
                                         const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples);
 
-
+ZDICTLIB_API size_t ZDICT_addEntropyTablesFromBuffer_advanced(void* dictBuffer, size_t dictContentSize, size_t dictBufferCapacity,
+                                                 const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples,
+                                                 ZDICT_params_t params);
 
 #endif   /* ZDICT_STATIC_LINKING_ONLY */
 

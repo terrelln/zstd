@@ -205,7 +205,23 @@ static unsigned longCommandWArg(const char** stringPtr, const char* longCommand)
     return result;
 }
 
-
+#ifndef ZSTD_NODICT
+static unsigned parseCoverParameters(const char* stringPtr, COVER_params_t *params)
+{
+    memset(params, 0, sizeof(*params));
+    for (; ;) {
+        if (longCommandWArg(&stringPtr, "smoothing=")) { params->smoothing = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
+        if (longCommandWArg(&stringPtr, "kMin=") || longCommandWArg(&stringPtr, "kmin=")) { params->kMin = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
+        if (longCommandWArg(&stringPtr, "kStep=") || longCommandWArg(&stringPtr, "kstep=")) { params->kStep = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
+        if (longCommandWArg(&stringPtr, "kMax=") || longCommandWArg(&stringPtr, "kmax=")) { params->kMax = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
+        if (longCommandWArg(&stringPtr, "d=")) { params->d = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
+        return 0;
+    }
+    if (stringPtr[0] != 0) return 0;
+    DISPLAYLEVEL(4, "smoothing=%d\nkMin=%d\nkStep=%d\nkMax=%d\nd=%d\n", params->smoothing, params->kMin, params->kStep, params->kMax, params->d);
+    return 1;
+}
+#endif
 /** parseCompressionParameters() :
  *  reads compression parameters from *stringPtr (e.g. "--zstd=wlog=23,clog=23,hlog=22,slog=6,slen=3,tlen=48,strat=6") into *params
  *  @return 1 means that compression parameters were correct
@@ -231,7 +247,7 @@ static unsigned parseCompressionParameters(const char* stringPtr, ZSTD_compressi
 }
 
 
-typedef enum { zom_compress, zom_decompress, zom_test, zom_bench, zom_train } zstd_operation_mode;
+typedef enum { zom_compress, zom_decompress, zom_test, zom_bench, zom_train, zom_cover } zstd_operation_mode;
 
 #define CLEAN_RETURN(i) { operationResult = (i); goto _end; }
 
@@ -267,6 +283,9 @@ int main(int argCount, const char* argv[])
     const char** extendedFileList = NULL;
     char* fileNamesBuf = NULL;
     unsigned fileNamesNb;
+#endif
+#ifndef ZSTD_NODICT
+    COVER_params_t coverParams;
 #endif
 
     /* init */
@@ -324,14 +343,19 @@ int main(int argCount, const char* argv[])
                     if (!strcmp(argument, "--sparse")) { FIO_setSparseWrite(2); continue; }
                     if (!strcmp(argument, "--no-sparse")) { FIO_setSparseWrite(0); continue; }
                     if (!strcmp(argument, "--test")) { operation=zom_test; continue; }
+#ifndef  ZSTD_NODICT
                     if (!strcmp(argument, "--train")) { operation=zom_train; outFileName=g_defaultDictName; continue; }
                     if (!strcmp(argument, "--maxdict")) { nextArgumentIsMaxDict=1; lastCommand=1; continue; }
                     if (!strcmp(argument, "--dictID")) { nextArgumentIsDictID=1; lastCommand=1; continue; }
+#endif
                     if (!strcmp(argument, "--no-dictID")) { FIO_setDictIDFlag(0); continue; }
                     if (!strcmp(argument, "--keep")) { FIO_setRemoveSrcFile(0); continue; }
                     if (!strcmp(argument, "--rm")) { FIO_setRemoveSrcFile(1); continue; }
 
                     /* long commands with arguments */
+#ifndef  ZSTD_NODICT
+                    if (longCommandWArg(&argument, "--cover=")) { operation=zom_cover; outFileName=g_defaultDictName; if (!parseCoverParameters(argument, &coverParams)) CLEAN_RETURN(badusage(programName)); continue; }
+#endif
                     if (longCommandWArg(&argument, "--memlimit=")) { memLimit = readU32FromChar(&argument); continue; }
                     if (longCommandWArg(&argument, "--memory=")) { memLimit = readU32FromChar(&argument); continue; }
                     if (longCommandWArg(&argument, "--memlimit-decompress=")) { memLimit = readU32FromChar(&argument); continue; }
@@ -437,13 +461,13 @@ int main(int argCount, const char* argv[])
                         }
                         break;
 #endif   /* ZSTD_NOBENCH */
-
+#ifndef ZSTD_NODICT
                         /* Dictionary Selection level */
                     case 's':
                         argument++;
                         dictSelect = readU32FromChar(&argument);
                         break;
-
+#endif
                         /* Pause at the end (-p) or set an additional param (-p#) (hidden option) */
                     case 'p': argument++;
 #ifndef ZSTD_NOBENCH
@@ -534,6 +558,15 @@ int main(int argCount, const char* argv[])
         DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, dictParams);
 #endif
         goto _end;
+    }
+    if (operation==zom_cover) {
+#ifndef ZSTD_NODICT
+        coverParams.compressionLevel = dictCLevel;
+        coverParams.notificationLevel = displayLevel;
+        coverParams.dictID = dictID;
+        DiB_trainFromFilesCover(outFileName, maxDictSize, filenameTable, filenameIdx, coverParams);
+        goto _end;
+#endif
     }
 
     /* No input filename ==> use stdin and stdout */

@@ -87,12 +87,16 @@ libzstd : $(LIBZSTD)
 
 lib: libzstd.a libzstd
 
-dictBuilder/cover.o: dictBuilder/cover.c
-	$(CC) $(FLAGS) -Idictbuilder -c $^ -o $@
+mkdict: $(ZSTD_FILES) dictBuilder/divsufsort.c dictBuilder/zdict.c dictBuilder/cover.c mkdict.cpp
+	$(CXX) $(FLAGS) -std=c++11 -Idictbuilder -g $^ -o $@ -lfolly -lboost_system -lboost_filesystem -lgflags -lglog
+
+check: $(ZSTD_FILES) dictBuilder/divsufsort.c dictBuilder/zdict.c dictBuilder/cover.c check.cpp
+	$(CXX) $(FLAGS) -std=c++11 -Idictbuilder -g $^ -o $@ -lfolly -lboost_system -lboost_filesystem -lgflags -lglog
 
 clean:
 	@$(RM) core *.o *.a *.gcda *.$(SHARED_EXT) *.$(SHARED_EXT).* libzstd.pc dll/libzstd.dll dll/libzstd.lib
 	@$(RM) decompress/*.o
+	@$(RM) mkdict check
 	@echo Cleaning library completed
 
 #------------------------------------------------------------------------

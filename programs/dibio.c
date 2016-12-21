@@ -33,6 +33,7 @@
 
 #define SAMPLESIZE_MAX (128 KB)
 #define MEMMULT 11    /* rough estimation : memory cost to analyze 1 byte of sample */
+#define COVER_MEMMULT 12    /* rough estimation : memory cost to analyze 1 byte of sample */
 static const size_t maxMemory = (sizeof(size_t) == 4) ? (2 GB - 64 MB) : ((size_t)(512 MB) << sizeof(size_t));
 
 #define NOISELENGTH 32
@@ -228,6 +229,61 @@ int DiB_trainFromFiles(const char* dictFileName, unsigned maxDictSize,
     DiB_fillNoise((char*)srcBuffer + benchedSize, NOISELENGTH);   /* guard band, for end of buffer condition */
 
     {   size_t const dictSize = ZDICT_trainFromBuffer_unsafe(dictBuffer, maxDictSize,
+                            srcBuffer, fileSizes, nbFiles,
+                            params);
+        if (ZDICT_isError(dictSize)) {
+            DISPLAYLEVEL(1, "dictionary training failed : %s \n", ZDICT_getErrorName(dictSize));   /* should not happen */
+            result = 1;
+            goto _cleanup;
+        }
+        /* save dict */
+        DISPLAYLEVEL(2, "Save dictionary of size %u into file %s \n", (U32)dictSize, dictFileName);
+        DiB_saveDict(dictFileName, dictBuffer, dictSize);
+    }
+
+    /* clean up */
+_cleanup:
+    free(srcBuffer);
+    free(dictBuffer);
+    free(fileSizes);
+    return result;
+}
+
+int DiB_trainFromFilesCover(const char* dictFileName, unsigned maxDictSize,
+                       const char** fileNamesTable, unsigned nbFiles,
+                       COVER_params_t params)
+{
+    void* const dictBuffer = malloc(maxDictSize);
+    size_t* const fileSizes = (size_t*)malloc(nbFiles * sizeof(size_t));
+    unsigned long long const totalSizeToLoad = DiB_getTotalCappedFileSize(fileNamesTable, nbFiles);
+    size_t const maxMem =  DiB_findMaxMem(totalSizeToLoad * COVER_MEMMULT) / COVER_MEMMULT;
+    size_t benchedSize = (size_t) MIN ((unsigned long long)maxMem, totalSizeToLoad);
+    void* const srcBuffer = malloc(benchedSize);
+    int result = 0;
+
+    /* Checks */
+    if ((!fileSizes) || (!srcBuffer) || (!dictBuffer)) EXM_THROW(12, "not enough memory for DiB_trainFiles");   /* should not happen */
+    g_displayLevel = params.notificationLevel;
+    if (g_tooLargeSamples) {
+        DISPLAYLEVEL(2, "!  Warning : some samples are very large \n");
+        DISPLAYLEVEL(2, "!  Note that dictionary is only useful for small files or beginning of large files. \n");
+        DISPLAYLEVEL(2, "!  As a consequence, only the first %u bytes of each file are loaded \n", SAMPLESIZE_MAX);
+    }
+    if ((nbFiles < 5) || (totalSizeToLoad < 9 * (unsigned long long)maxDictSize)) {
+        DISPLAYLEVEL(2, "!  Warning : nb of samples too low for proper processing ! \n");
+        DISPLAYLEVEL(2, "!  Please provide _one file per sample_. \n");
+        DISPLAYLEVEL(2, "!  Do not concatenate samples together into a single file, \n");
+        DISPLAYLEVEL(2, "!  as dictBuilder will be unable to find the beginning of each sample, \n");
+        DISPLAYLEVEL(2, "!  resulting in poor dictionary quality. \n");
+    }
+
+    /* init */
+    if (benchedSize < totalSizeToLoad)
+        DISPLAYLEVEL(1, "Not enough memory; training on %u MB only...\n", (unsigned)(benchedSize >> 20));
+
+    /* Load input buffer */
+    nbFiles = DiB_loadFiles(srcBuffer, &benchedSize, fileSizes, fileNamesTable, nbFiles);
+    {   size_t const dictSize = COVER_trainFromBuffer(dictBuffer, maxDictSize,
                             srcBuffer, fileSizes, nbFiles,
                             params);
         if (ZDICT_isError(dictSize)) {
