@@ -33,7 +33,7 @@
 
 #define SAMPLESIZE_MAX (128 KB)
 #define MEMMULT 11    /* rough estimation : memory cost to analyze 1 byte of sample */
-#define COVER_MEMMULT 12    /* rough estimation : memory cost to analyze 1 byte of sample */
+#define COVER_MEMMULT 9    /* rough estimation : memory cost to analyze 1 byte of sample */
 static const size_t maxMemory = (sizeof(size_t) == 4) ? (2 GB - 64 MB) : ((size_t)(512 MB) << sizeof(size_t));
 
 #define NOISELENGTH 32
