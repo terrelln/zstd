@@ -100,7 +100,7 @@ typedef struct {
 
 
 ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCapacity,
-                                const void* samplesBuffer, const size_t* samplesSizes, size_t nbSamples,
+                                const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples,
                                 COVER_params_t parameters);
 
 

@@ -64,7 +64,7 @@ static clock_t g_time = 0;
  */
 static size_t COVER_sum(const size_t *samplesSizes, unsigned nbSamples) {
   size_t sum = 0;
-  unsigned i;
+  size_t i;
   for (i = 0; i < nbSamples; ++i) {
     sum += samplesSizes[i];
   }
@@ -167,7 +167,7 @@ static void COVER_group(COVER_ctx_t *ctx, const void *group,
    * This allows us to map the whole dmer space to a much smaller space, the
    * size of the suffix array.
    */
-  const U32 dmerId = grpPtr - ctx->suffix;
+  const U32 dmerId = (U32)(grpPtr - ctx->suffix);
   /* Count the number of samples this dmer shows up in */
   U32 freq = 0;
   /* Details */
@@ -375,9 +375,9 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
     }
     {
       /* Trim off the zero frequency head and tail from the segment. */
-      size_t newBegin = bestSegment.end;
-      size_t newEnd = bestSegment.begin;
-      size_t pos;
+      U32 newBegin = bestSegment.end;
+      U32 newEnd = bestSegment.begin;
+      U32 pos;
       for (pos = bestSegment.begin; pos != bestSegment.end; ++pos) {
         U32 freq = ctx->freqs[ctx->dmerAt[pos]];
         if (freq != 0) {
@@ -409,7 +409,7 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
 
 ZDICTLIB_API size_t COVER_trainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
-    const size_t *samplesSizes, size_t nbSamples, COVER_params_t parameters) {
+    const size_t *samplesSizes, unsigned nbSamples, COVER_params_t parameters) {
   const size_t dictContentSize = dictBufferCapacity - COVER_ENTROPY_TABLES_SIZE;
   const size_t totalSamplesSize = COVER_sum(samplesSizes, nbSamples);
   BYTE *const dict = (BYTE *)dictBuffer;
@@ -491,21 +491,21 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
       /* Divide the data up into epochs of equal size.
        * We will select at least one segment from each epoch.
        */
-      const U32 epochs = dictContentSize / parameters.kMax;
-      const U32 epochSize = suffixSize / epochs;
+      const U32 epochs = (U32)(dictContentSize / parameters.kMax);
+      const U32 epochSize = (U32)(suffixSize / epochs);
       size_t epoch;
       DISPLAYLEVEL(3, "Breaking content into %u epochs of size %u\n", epochs,
                    epochSize);
       for (epoch = 0; tail > 0; epoch = (epoch + 1) % epochs) {
-        const U32 epochBegin = epoch * epochSize;
-        const U32 epochEnd = (epoch + 1) * epochSize;
+        const U32 epochBegin = (U32)(epoch * epochSize);
+        const U32 epochEnd = epochBegin + epochSize;
         COVER_segment_t segment;
+        size_t segmentSize;
         if (!COVER_selectSegment(&ctx, epochBegin, epochEnd, &segment)) {
           rc = ERROR(GENERIC);
           goto _cleanup;
         }
-        const size_t segmentSize =
-            MIN(segment.end - segment.begin + parameters.d - 1, tail);
+        segmentSize = MIN(segment.end - segment.begin + parameters.d - 1, tail);
         if (segmentSize == 0) {
           break;
         }
