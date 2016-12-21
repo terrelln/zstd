@@ -47,7 +47,6 @@ static int g_displayLevel = 2;
     DISPLAY(__VA_ARGS__);                                                      \
   } /* 0 : no display;   1: errors;   2: default;  3: details;  4: debug */
 
-#if 0
 #define DISPLAYUPDATE(l, ...)                                                  \
   if (g_displayLevel >= l) {                                                   \
     if ((clock() - g_time > refreshRate) || (g_displayLevel >= 4)) {           \
@@ -59,7 +58,6 @@ static int g_displayLevel = 2;
   }
 static const clock_t refreshRate = CLOCKS_PER_SEC * 15 / 100;
 static clock_t g_time = 0;
-#endif
 
 /**
  * Returns the sum of the sample sizes.
@@ -426,6 +424,8 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
          */
         tail -= segmentSize;
         memcpy(dictContent + tail, samples + segment.begin, segmentSize);
+        DISPLAYUPDATE(2, "\r%zu%%       ",
+                      ((dictContentSize - tail) * 100) / dictContentSize);
       }
       {
         ZDICT_params_t zdictParams;
@@ -438,6 +438,7 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
             samplesSizes, nbSamples, zdictParams);
       }
     }
+    DISPLAYLEVEL(2, "\r%79s\r", "");
     DISPLAYLEVEL(2, "Constructed dictionary of size %zu\n", rc);
     free(suffix);
     free(dmerAt);

@@ -110,6 +110,7 @@ static unsigned DiB_loadFiles(void* buffer, size_t* bufferSizePtr,
             fileSizes[n] = fileSize;
             fclose(f);
     }   }
+    DISPLAYLEVEL(2, "\r%79s\r", "");
     *bufferSizePtr = pos;
     return n;
 }
