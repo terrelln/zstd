@@ -328,7 +328,7 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
   for (k = kMin; k <= kMax; k += ctx->parameters.kStep) {
     /* Save the best segment of this length */
     COVER_segment_t bestSegment = {0, 0, 0};
-    COVER_segment_t activeSegment = {begin, begin, 0};
+    COVER_segment_t activeSegment;
     const size_t dmersInK = k - d + 1;
     /* Reset the activeDmers in the segment */
     COVER_map activeDmers;
@@ -336,6 +336,9 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
       DISPLAYLEVEL(1, "Failed to allocate dmer map: out of memory\n");
       return 0;
     }
+    activeSegment.begin = begin;
+    activeSegment.end = begin;
+    activeSegment.score = 0;
     /* Slide the active segment through the whole epoch.
      * Save the best segment in bestSegment.
      */
@@ -446,9 +449,14 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
     /* The offsets of each file */
     size_t *offsets = (size_t *)malloc((nbSamples + 1) * sizeof(size_t));
     size_t rc = 0;
-    COVER_ctx_t ctx = {
-        samples, offsets, nbSamples, suffix, NULL, dmerAt, parameters,
-    };
+    COVER_ctx_t ctx;
+    ctx.samples = samples;
+    ctx.offsets = offsets;
+    ctx.nbSamples = nbSamples;
+    ctx.suffix = suffix;
+    ctx.freqs = NULL;
+    ctx.dmerAt = dmerAt;
+    ctx.parameters = parameters;
     /* qsort doesn't take an opaque pointer, so pass the context as a global */
     g_ctx = &ctx;
 

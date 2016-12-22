@@ -13,7 +13,7 @@
 *  Includes
 ***************************************/
 #include "util.h"           /* Compiler options, UTIL_GetFileSize, UTIL_getTotalFileSize */
-#include <stdlib.h>         /* malloc, free */
+#include <stdlib.h>         /* malloc, free, srand, rand */
 #include <string.h>         /* memset */
 #include <stdio.h>          /* fprintf, fopen, ftello64 */
 #include <time.h>           /* clock_t, clock, CLOCKS_PER_SEC */
@@ -113,6 +113,31 @@ static unsigned DiB_loadFiles(void* buffer, size_t* bufferSizePtr,
     DISPLAYLEVEL(2, "\r%79s\r", "");
     *bufferSizePtr = pos;
     return n;
+}
+
+#define DiB_rotl32(x,r) ((x << r) | (x >> (32 - r)))
+static U32 DiB_rand(U32* src)
+{
+    static const U32 prime1 = 2654435761U;
+    static const U32 prime2 = 2246822519U;
+    U32 rand32 = *src;
+    rand32 *= prime1;
+    rand32 ^= prime2;
+    rand32  = DiB_rotl32(rand32, 13);
+    *src = rand32;
+    return rand32 >> 5;
+}
+
+static void DiB_shuffle(const char** fileNamesTable, unsigned nbFiles) {
+  /* Initialize the pseudorandom number generator */
+  U32 seed = 0xFD2FB528;
+  unsigned i;
+  for (i = nbFiles - 1; i > 0; --i) {
+    unsigned const j = DiB_rand(&seed) % (i + 1);
+    const char* tmp = fileNamesTable[j];
+    fileNamesTable[j] = fileNamesTable[i];
+    fileNamesTable[i] = tmp;
+  }
 }
 
 
@@ -283,6 +308,8 @@ int DiB_trainFromFilesCover(const char* dictFileName, unsigned maxDictSize,
         DISPLAYLEVEL(1, "Not enough memory; training on %u MB only...\n", (unsigned)(benchedSize >> 20));
 
     /* Load input buffer */
+    DISPLAYLEVEL(3, "Shuffling input files\n");
+    DiB_shuffle(fileNamesTable, nbFiles);
     nbFiles = DiB_loadFiles(srcBuffer, &benchedSize, fileSizes, fileNamesTable, nbFiles);
     {   size_t const dictSize = COVER_trainFromBuffer(dictBuffer, maxDictSize,
                             srcBuffer, fileSizes, nbFiles,
