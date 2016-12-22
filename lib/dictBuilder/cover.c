@@ -531,9 +531,10 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
         zdictParams.notificationLevel = parameters.notificationLevel;
         zdictParams.dictID = parameters.dictID;
         zdictParams.compressionLevel = parameters.compressionLevel;
-        rc = ZDICT_addEntropyTablesFromBuffer_advanced(
-            dict, dictContentSize - tail, dictBufferCapacity, samplesBuffer,
-            samplesSizes, nbSamples, zdictParams);
+        rc = ZDICT_finalizeDictionary(dict, dictBufferCapacity,
+                                      dictContent + tail,
+                                      dictContentSize - tail, samplesBuffer,
+                                      samplesSizes, nbSamples, zdictParams);
       }
     }
     DISPLAYLEVEL(2, "\r%79s\r", "");

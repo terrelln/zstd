@@ -548,7 +548,7 @@ int main(int argCount, const char* argv[])
             coverParams.compressionLevel = dictCLevel;
             coverParams.notificationLevel = displayLevel;
             coverParams.dictID = dictID;
-            DiB_trainFromFilesCover(outFileName, maxDictSize, filenameTable, filenameIdx, coverParams);
+            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, NULL, &coverParams);
         } else {
             ZDICT_params_t dictParams;
             memset(&dictParams, 0, sizeof(dictParams));
@@ -556,7 +556,7 @@ int main(int argCount, const char* argv[])
             dictParams.selectivityLevel = dictSelect;
             dictParams.notificationLevel = displayLevel;
             dictParams.dictID = dictID;
-            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, dictParams);
+            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, &dictParams, NULL);
         }
 #endif
         goto _end;
