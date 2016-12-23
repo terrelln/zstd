@@ -7,11 +7,6 @@
  * of patent rights can be found in the PATENTS file in the same directory.
  */
 
-/*-**************************************
-*  Tuning parameters
-****************************************/
-typedef double COVER_score_t;
-
 /*-*************************************
 *  Dependencies
 ***************************************/
@@ -198,7 +193,7 @@ static void COVER_map_destroy(COVER_map_t *map) {
 typedef struct {
   U32 begin;
   U32 end;
-  COVER_score_t score;
+  double score;
 } COVER_segment_t;
 
 typedef struct {
