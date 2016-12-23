@@ -472,8 +472,8 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
     return ERROR(dstSize_tooSmall);
   }
   g_displayLevel = parameters.notificationLevel;
-  DISPLAYLEVEL(2, "Training on %u samples of total size %zu\n", nbSamples,
-               totalSamplesSize);
+  DISPLAYLEVEL(2, "Training on %u samples of total size %u\n", nbSamples,
+               (U32)totalSamplesSize);
   {
     const size_t suffixSize = totalSamplesSize - parameters.d + 1;
     /* Partial suffix array */
@@ -564,8 +564,9 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
          */
         tail -= segmentSize;
         memcpy(dict + tail, samples + segment.begin, segmentSize);
-        DISPLAYUPDATE(2, "\r%zu%%       ",
-                      ((dictBufferCapacity - tail) * 100) / dictBufferCapacity);
+        const U32 percent =
+            ((dictBufferCapacity - tail) * 100) / dictBufferCapacity;
+        DISPLAYUPDATE(2, "\r%u%%       ", percent);
       }
       {
         ZDICT_params_t zdictParams;
@@ -579,7 +580,9 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
       }
     }
     DISPLAYLEVEL(2, "\r%79s\r", "");
-    DISPLAYLEVEL(2, "Constructed dictionary of size %zu\n", rc);
+    if (!ZSTD_isError(rc)) {
+      DISPLAYLEVEL(2, "Constructed dictionary of size %u\n", (U32)rc);
+    }
   _cleanup:
     if (suffix)
       free(suffix);
