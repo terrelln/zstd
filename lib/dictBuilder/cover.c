@@ -564,9 +564,9 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
          */
         tail -= segmentSize;
         memcpy(dict + tail, samples + segment.begin, segmentSize);
-        const U32 percent =
-            ((dictBufferCapacity - tail) * 100) / dictBufferCapacity;
-        DISPLAYUPDATE(2, "\r%u%%       ", percent);
+        DISPLAYUPDATE(2, "\r%u%%       ",
+                      (U32)((dictBufferCapacity - tail) * 100) /
+                          dictBufferCapacity);
       }
       {
         ZDICT_params_t zdictParams;
