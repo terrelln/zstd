@@ -191,7 +191,14 @@ static unsigned longCommandWArg(const char** stringPtr, const char* longCommand)
     return result;
 }
 
+
 #ifndef ZSTD_NODICT
+/**
+ * parseCoverParameters() :
+ * reads cover parameters from *stringPtr (e.g. "--cover=smoothing=100,kmin=48,kstep=4,kmax=64,d=8") into *params
+ * @return 1 means that cover parameters were correct
+ * @return 0 in case of malformed parameters
+ */
 static unsigned parseCoverParameters(const char* stringPtr, COVER_params_t *params)
 {
     memset(params, 0, sizeof(*params));
@@ -449,11 +456,13 @@ int main(int argCount, const char* argv[])
                         }
                         break;
 #endif   /* ZSTD_NOBENCH */
+
                         /* Dictionary Selection level */
                     case 's':
                         argument++;
                         dictSelect = readU32FromChar(&argument);
                         break;
+
                         /* Pause at the end (-p) or set an additional param (-p#) (hidden option) */
                     case 'p': argument++;
 #ifndef ZSTD_NOBENCH
