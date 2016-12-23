@@ -122,7 +122,7 @@ static U32 COVER_map_hash(COVER_map_t *map, U32 key) {
 /**
  * Helper function that returns the index that a key should be placed into.
  */
-static size_t COVER_map_index(COVER_map_t *map, U32 key) {
+static U32 COVER_map_index(COVER_map_t *map, U32 key) {
   const U32 hash = COVER_map_hash(map, key);
   U32 i;
   for (i = hash;; i = (i + 1) & map->sizeMask) {
