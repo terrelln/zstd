@@ -31,6 +31,7 @@ typedef double COVER_score_t;
 *  Constants
 ***************************************/
 #define COVER_MAX_SAMPLES_SIZE ((U32)-1)
+#define ZDICT_ENTROPYSIZE_MIN 200
 
 /*-*************************************
 *  Console display
@@ -447,10 +448,10 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
 ZDICTLIB_API size_t COVER_trainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
     const size_t *samplesSizes, unsigned nbSamples, COVER_params_t parameters) {
-  const size_t dictContentSize = dictBufferCapacity - ZDICT_CONTENTSIZE_MIN;
+  const size_t dictContentSize = dictBufferCapacity - ZDICT_ENTROPYSIZE_MIN;
   const size_t totalSamplesSize = COVER_sum(samplesSizes, nbSamples);
   BYTE *const dict = (BYTE *)dictBuffer;
-  BYTE *const dictContent = dict + ZDICT_CONTENTSIZE_MIN;
+  BYTE *const dictContent = dict + ZDICT_ENTROPYSIZE_MIN;
   const BYTE *const samples = (const BYTE *)samplesBuffer;
   /* Checks */
   if (nbSamples == 0) {
@@ -468,7 +469,8 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
   if (parameters.kMin > parameters.kMax) {
     return ERROR(GENERIC);
   }
-  if (dictBufferCapacity < ZDICT_DICTSIZE_MIN) {
+  if (dictBufferCapacity < ZDICT_DICTSIZE_MIN ||
+      dictContentSize < ZDICT_CONTENTSIZE_MIN) {
     return ERROR(dstSize_tooSmall);
   }
   g_displayLevel = parameters.notificationLevel;
