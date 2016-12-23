@@ -100,7 +100,7 @@ typedef struct {
 
 
 /*! COVER_trainFromBuffer() :
-    Train a dictionary from an array of samples.
+    Train a dictionary from an array of samples using the COVER algorithm.
     Samples must be stored concatenated in a single flat buffer `samplesBuffer`,
     supplied with an array of sizes `samplesSizes`, providing the size of each sample, in order.
     The resulting dictionary will be saved into `dictBuffer`.

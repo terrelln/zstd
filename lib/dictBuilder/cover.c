@@ -99,7 +99,7 @@ static void COVER_map_clear(COVER_map_t *map) {
  */
 static int COVER_map_init(COVER_map_t *map, U32 size) {
   map->sizeLog = ZSTD_highbit32(size - 1) + 2;
-  map->size = (size_t)1 << map->sizeLog;
+  map->size = (U32)1 << map->sizeLog;
   map->sizeMask = map->size - 1;
   map->data = (COVER_map_pair_t *)malloc(map->size * sizeof(COVER_map_pair_t));
   if (!map->data) {
@@ -115,7 +115,7 @@ static int COVER_map_init(COVER_map_t *map, U32 size) {
  * Internal hash function
  */
 static const U32 prime4bytes = 2654435761U;
-static size_t COVER_map_hash(COVER_map_t *map, U32 key) {
+static U32 COVER_map_hash(COVER_map_t *map, U32 key) {
   return (key * prime4bytes) >> (32 - map->sizeLog);
 }
 
@@ -123,8 +123,8 @@ static size_t COVER_map_hash(COVER_map_t *map, U32 key) {
  * Helper function that returns the index that a key should be placed into.
  */
 static size_t COVER_map_index(COVER_map_t *map, U32 key) {
-  const size_t hash = COVER_map_hash(map, key);
-  size_t i;
+  const U32 hash = COVER_map_hash(map, key);
+  U32 i;
   for (i = hash;; i = (i + 1) & map->sizeMask) {
     COVER_map_pair_t *pos = &map->data[i];
     if (pos->value == MAP_EMPTY_VALUE) {
@@ -154,9 +154,9 @@ static U32 *COVER_map_at(COVER_map_t *map, U32 key) {
  * Deletes key from the map if present.
  */
 static void COVER_map_remove(COVER_map_t *map, U32 key) {
-  size_t i = COVER_map_index(map, key);
+  U32 i = COVER_map_index(map, key);
   COVER_map_pair_t *del = &map->data[i];
-  size_t shift = 1;
+  U32 shift = 1;
   if (del->value == MAP_EMPTY_VALUE) {
     return;
   }
@@ -439,6 +439,13 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
   return globalBestSegment;
 }
 
+/**
+ * Constructs a dictionary using a heuristic based on the following paper:
+ *
+ * Liao, Petri, Moffat, Wirth
+ * Effective Construction of Relative Lempel-Ziv Dictionaries
+ * Published in WWW 2016.
+ */
 ZDICTLIB_API size_t COVER_trainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
     const size_t *samplesSizes, unsigned nbSamples, COVER_params_t parameters) {
