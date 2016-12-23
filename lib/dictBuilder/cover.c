@@ -80,8 +80,8 @@ typedef struct COVER_map_pair_t_s {
 typedef struct COVER_map_s {
   COVER_map_pair_t *data;
   U32 sizeLog;
-  size_t size;
-  size_t sizeMask;
+  U32 size;
+  U32 sizeMask;
 } COVER_map_t;
 
 /**
@@ -97,7 +97,7 @@ static void COVER_map_clear(COVER_map_t *map) {
  * The map must be destroyed with COVER_map_destroy().
  * The map is only guaranteed to be large enough to hold size elements.
  */
-static int COVER_map_init(COVER_map_t *map, size_t size) {
+static int COVER_map_init(COVER_map_t *map, U32 size) {
   map->sizeLog = ZSTD_highbit32(size - 1) + 2;
   map->size = (size_t)1 << map->sizeLog;
   map->sizeMask = map->size - 1;
