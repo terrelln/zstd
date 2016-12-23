@@ -31,7 +31,6 @@ typedef double COVER_score_t;
 *  Constants
 ***************************************/
 #define COVER_MAX_SAMPLES_SIZE ((U32)-1)
-#define COVER_ENTROPY_TABLES_SIZE 200
 
 /*-*************************************
 *  Console display
@@ -71,6 +70,131 @@ static size_t COVER_sum(const size_t *samplesSizes, unsigned nbSamples) {
   return sum;
 }
 
+/**
+ * A small specialized hash map for storing activeDmers.
+ * The map does not resize, so if it becomes full it will loop forever.
+ * Thus, the map must be large enough to store every value.
+ * The map implements linear probing and keeps its load less than 0.5.
+ */
+#define MAP_EMPTY_VALUE ((U32)-1)
+typedef struct COVER_map_pair_t_s {
+  U32 key;
+  U32 value;
+} COVER_map_pair_t;
+
+typedef struct COVER_map_s {
+  COVER_map_pair_t *data;
+  U32 sizeLog;
+  size_t size;
+  size_t sizeMask;
+} COVER_map_t;
+
+/**
+ * Clear the map.
+ */
+static void COVER_map_clear(COVER_map_t *map) {
+  memset(map->data, MAP_EMPTY_VALUE, map->size * sizeof(COVER_map_pair_t));
+}
+
+/**
+ * Initializes a map of the given size.
+ * Returns 1 on success and 0 on failure.
+ * The map must be destroyed with COVER_map_destroy().
+ * The map is only guaranteed to be large enough to hold size elements.
+ */
+static int COVER_map_init(COVER_map_t *map, size_t size) {
+  map->sizeLog = ZSTD_highbit32(size - 1) + 2;
+  map->size = (size_t)1 << map->sizeLog;
+  map->sizeMask = map->size - 1;
+  map->data = (COVER_map_pair_t *)malloc(map->size * sizeof(COVER_map_pair_t));
+  if (!map->data) {
+    map->sizeLog = 0;
+    map->size = 0;
+    return 0;
+  }
+  COVER_map_clear(map);
+  return 1;
+}
+
+/**
+ * Internal hash function
+ */
+static const U32 prime4bytes = 2654435761U;
+static size_t COVER_map_hash(COVER_map_t *map, U32 key) {
+  return (key * prime4bytes) >> (32 - map->sizeLog);
+}
+
+/**
+ * Helper function that returns the index that a key should be placed into.
+ */
+static size_t COVER_map_index(COVER_map_t *map, U32 key) {
+  const size_t hash = COVER_map_hash(map, key);
+  size_t i;
+  for (i = hash;; i = (i + 1) & map->sizeMask) {
+    COVER_map_pair_t *pos = &map->data[i];
+    if (pos->value == MAP_EMPTY_VALUE) {
+      return i;
+    }
+    if (pos->key == key) {
+      return i;
+    }
+  }
+}
+
+/**
+ * Returns the pointer to the value for key.
+ * If key is not in the map, it is inserted and the value is set to 0.
+ * The map must not be full.
+ */
+static U32 *COVER_map_at(COVER_map_t *map, U32 key) {
+  COVER_map_pair_t *pos = &map->data[COVER_map_index(map, key)];
+  if (pos->value == MAP_EMPTY_VALUE) {
+    pos->key = key;
+    pos->value = 0;
+  }
+  return &pos->value;
+}
+
+/**
+ * Deletes key from the map if present.
+ */
+static void COVER_map_remove(COVER_map_t *map, U32 key) {
+  size_t i = COVER_map_index(map, key);
+  COVER_map_pair_t *del = &map->data[i];
+  size_t shift = 1;
+  if (del->value == MAP_EMPTY_VALUE) {
+    return;
+  }
+  for (i = (i + 1) & map->sizeMask;; i = (i + 1) & map->sizeMask) {
+    COVER_map_pair_t *const pos = &map->data[i];
+    /* If the position is empty we are done */
+    if (pos->value == MAP_EMPTY_VALUE) {
+      del->value = MAP_EMPTY_VALUE;
+      return;
+    }
+    /* If pos can be moved to del do so */
+    if (((i - COVER_map_hash(map, pos->key)) & map->sizeMask) >= shift) {
+      del->key = pos->key;
+      del->value = pos->value;
+      del = pos;
+      shift = 1;
+    } else {
+      ++shift;
+    }
+  }
+}
+
+/**
+ * Destroyes a map that is inited with COVER_map_init().
+ */
+static void COVER_map_destroy(COVER_map_t *map) {
+  if (map->data) {
+    free(map->data);
+  }
+  map->data = NULL;
+  map->size = 0;
+}
+
 typedef struct {
   U32 begin;
   U32 end;
@@ -84,6 +208,7 @@ typedef struct {
   U32 *suffix;
   U32 *freqs;
   U32 *dmerAt;
+  COVER_map_t *activeDmers;
   COVER_params_t parameters;
 } COVER_ctx_t;
 
@@ -208,91 +333,6 @@ static void COVER_group(COVER_ctx_t *ctx, const void *group,
 }
 
 /**
- * A small specialized map class for storing activeDmers.
- * The map *must* be large enough to store every value, it does not grow.
- * The map is represented as an array of key value pairs.
- * If the value is 0, then the entry is empty.
- * The time complexity for all operations is O(size).
- */
-typedef struct COVER_map_pair_s {
-  U32 key;
-  U32 value;
-} COVER_map_pair;
-
-typedef struct COVER_map_s {
-  COVER_map_pair *data;
-  size_t size;
-} COVER_map;
-
-/**
- * Initializes a map of the given size.
- * Returns 1 on success and 0 on failure.
- * If it succeeds, map must be destroyed with COVER_map_destroy().
- */
-static int COVER_map_init(COVER_map *map, size_t size) {
-  map->data = (COVER_map_pair *)malloc(size * sizeof(COVER_map_pair));
-  if (!map->data) {
-    map->size = 0;
-    return 0;
-  }
-  map->size = size;
-  memset(map->data, 0, map->size * sizeof(COVER_map_pair));
-  return 1;
-}
-
-/**
- * Returns the pointer to the value for key.
- * If key is not in the map, it is inserted and the value is set to 0.
- * If there is no space in the map to insert the key NULL is returned.
- */
-static U32 *COVER_map_find(COVER_map *map, U32 key) {
-  U32 i = 0;
-  COVER_map_pair *empty = NULL;
-  for (i = 0; i < map->size; ++i) {
-    COVER_map_pair *elt = &map->data[i];
-    if (elt->value == 0 && !empty) {
-      empty = elt;
-    } else if (elt->key == key) {
-      return &elt->value;
-    }
-  }
-  if (empty) {
-    empty->key = key;
-    empty->value = 0;
-    return &empty->value;
-  }
-  return NULL;
-}
-
-/**
- * Deletes key from the map.
- */
-static void COVER_map_remove(COVER_map *map, U32 key) {
-  U32 i = 0;
-  for (i = 0; i < map->size; ++i) {
-    COVER_map_pair *elt = &map->data[i];
-    if (elt->value == 0) {
-      continue;
-    }
-    if (elt->key == key) {
-      elt->value = 0;
-      return;
-    }
-  }
-}
-
-/**
- * Destroyes a map that is inited with COVER_map_init().
- */
-static void COVER_map_destroy(COVER_map *map) {
-  if (map->data) {
-    free(map->data);
-  }
-  map->data = NULL;
-  map->size = 0;
-}
-
-/**
  * Selects the best segment in an epoch.
  * Segments of are scored according to the function:
  *
@@ -315,8 +355,8 @@ static void COVER_map_destroy(COVER_map *map) {
  * We add the smoothing in to give an advantage to longer segments.
  * The larger smoothing is, the more longer matches are favored.
  */
-static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
-                               COVER_segment_t *segment) {
+static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
+                                           U32 end) {
   const unsigned kMin = ctx->parameters.kMin;
   const unsigned kMax = ctx->parameters.kMax;
   const unsigned d = ctx->parameters.d;
@@ -331,11 +371,7 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
     COVER_segment_t activeSegment;
     const size_t dmersInK = k - d + 1;
     /* Reset the activeDmers in the segment */
-    COVER_map activeDmers;
-    if (!COVER_map_init(&activeDmers, dmersInK + 1)) {
-      DISPLAYLEVEL(1, "Failed to allocate dmer map: out of memory\n");
-      return 0;
-    }
+    COVER_map_clear(ctx->activeDmers);
     activeSegment.begin = begin;
     activeSegment.end = begin;
     activeSegment.score = 0;
@@ -346,7 +382,7 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
       /* The dmerId for the dmer at the next position */
       U32 newDmer = ctx->dmerAt[activeSegment.end];
       /* The entry in activeDmers for this dmerId */
-      U32 *newDmerOcc = COVER_map_find(&activeDmers, newDmer);
+      U32 *newDmerOcc = COVER_map_at(ctx->activeDmers, newDmer);
       /* If the dmer isn't already present in the segment add its score. */
       if (*newDmerOcc == 0) {
         /* The paper suggest using the L-0.5 norm, but experiments show that it
@@ -361,12 +397,12 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
       /* If the window is now too large, drop the first position */
       if (activeSegment.end - activeSegment.begin == dmersInK + 1) {
         U32 delDmer = ctx->dmerAt[activeSegment.begin];
-        U32 *delDmerOcc = COVER_map_find(&activeDmers, delDmer);
+        U32 *delDmerOcc = COVER_map_at(ctx->activeDmers, delDmer);
         activeSegment.begin += 1;
         *delDmerOcc -= 1;
         /* If this is the last occurence of the dmer, subtract its score */
         if (*delDmerOcc == 0) {
-          COVER_map_remove(&activeDmers, delDmer);
+          COVER_map_remove(ctx->activeDmers, delDmer);
           activeSegment.score -= ctx->freqs[delDmer];
         }
       }
@@ -397,7 +433,6 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
     if (bestSegment.score > globalBestSegment.score) {
       globalBestSegment = bestSegment;
     }
-    COVER_map_destroy(&activeDmers);
   }
   {
     /* Zero out the frequency of each dmer covered by the chosen segment. */
@@ -406,17 +441,16 @@ static int COVER_selectSegment(COVER_ctx_t *ctx, U32 begin, U32 end,
       ctx->freqs[ctx->dmerAt[pos]] = 0;
     }
   }
-  *segment = globalBestSegment;
-  return 1;
+  return globalBestSegment;
 }
 
 ZDICTLIB_API size_t COVER_trainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
     const size_t *samplesSizes, unsigned nbSamples, COVER_params_t parameters) {
-  const size_t dictContentSize = dictBufferCapacity - COVER_ENTROPY_TABLES_SIZE;
+  const size_t dictContentSize = dictBufferCapacity - ZDICT_CONTENTSIZE_MIN;
   const size_t totalSamplesSize = COVER_sum(samplesSizes, nbSamples);
   BYTE *const dict = (BYTE *)dictBuffer;
-  BYTE *const dictContent = dict + COVER_ENTROPY_TABLES_SIZE;
+  BYTE *const dictContent = dict + ZDICT_CONTENTSIZE_MIN;
   const BYTE *const samples = (const BYTE *)samplesBuffer;
   /* Checks */
   if (nbSamples == 0) {
@@ -434,7 +468,7 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
   if (parameters.kMin > parameters.kMax) {
     return ERROR(GENERIC);
   }
-  if (dictBufferCapacity < COVER_ENTROPY_TABLES_SIZE) {
+  if (dictBufferCapacity < ZDICT_DICTSIZE_MIN) {
     return ERROR(dstSize_tooSmall);
   }
   g_displayLevel = parameters.notificationLevel;
@@ -450,12 +484,23 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
     size_t *offsets = (size_t *)malloc((nbSamples + 1) * sizeof(size_t));
     size_t rc = 0;
     COVER_ctx_t ctx;
+    COVER_map_t activeDmers;
+    if (!COVER_map_init(&activeDmers, parameters.kMax - parameters.d + 1)) {
+      DISPLAYLEVEL(1, "Failed to allocate dmer map: out of memory\n");
+      rc = ERROR(memory_allocation);
+      goto _cleanup;
+    }
+    if (!suffix || !dmerAt || !offsets) {
+      rc = ERROR(memory_allocation);
+      goto _cleanup;
+    }
     ctx.samples = samples;
     ctx.offsets = offsets;
     ctx.nbSamples = nbSamples;
     ctx.suffix = suffix;
     ctx.freqs = NULL;
     ctx.dmerAt = dmerAt;
+    ctx.activeDmers = &activeDmers;
     ctx.parameters = parameters;
     /* qsort doesn't take an opaque pointer, so pass the context as a global */
     g_ctx = &ctx;
@@ -507,12 +552,9 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
       for (epoch = 0; tail > 0; epoch = (epoch + 1) % epochs) {
         const U32 epochBegin = (U32)(epoch * epochSize);
         const U32 epochEnd = epochBegin + epochSize;
-        COVER_segment_t segment;
         size_t segmentSize;
-        if (!COVER_selectSegment(&ctx, epochBegin, epochEnd, &segment)) {
-          rc = ERROR(GENERIC);
-          goto _cleanup;
-        }
+        COVER_segment_t segment =
+            COVER_selectSegment(&ctx, epochBegin, epochEnd);
         segmentSize = MIN(segment.end - segment.begin + parameters.d - 1, tail);
         if (segmentSize == 0) {
           break;
@@ -540,9 +582,13 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
     DISPLAYLEVEL(2, "\r%79s\r", "");
     DISPLAYLEVEL(2, "Constructed dictionary of size %zu\n", rc);
   _cleanup:
-    free(suffix);
-    free(dmerAt);
-    free(offsets);
+    if (suffix)
+      free(suffix);
+    if (dmerAt)
+      free(dmerAt);
+    if (offsets)
+      free(offsets);
+    COVER_map_destroy(&activeDmers);
     return rc;
   }
 }
