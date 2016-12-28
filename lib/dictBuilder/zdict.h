@@ -86,13 +86,17 @@ ZDICTLIB_API size_t ZDICT_trainFromBuffer_advanced(void* dictBuffer, size_t dict
                                 const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples,
                                 ZDICT_params_t parameters);
 
-
+/*! COVER_params_t :
+    For all values 0 means default.
+    kMin and d are the only required parameters.
+*/
 typedef struct {
-    unsigned smoothing;
-    unsigned kMin;
-    unsigned kStep;
-    unsigned kMax;
-    unsigned d;
+    unsigned d;                  /* dmer size : constraint: <= kMin */
+    unsigned kMin;               /* Minimum segment size : constraint: > 0 */
+    unsigned kStep;              /* Try segments [kMin, kMin + kStep, ..., kMax] : 0 (default) only if kMax == 0 */
+    unsigned kMax;               /* Maximum segment size : 0 = kMin (default) : constraint : 0 or >= kMin */
+    unsigned smoothing;          /* Higher smoothing => larger segments are selected.  Only useful if kMax > kMin. */
+
     unsigned notificationLevel;  /* Write to stderr; 0 = none (default); 1 = errors; 2 = progression; 3 = details; 4 = debug; */
     unsigned dictID;             /* 0 means auto mode (32-bits random value); other : force dictID value */
     int      compressionLevel;   /* 0 means default; target a specific zstd compression level */

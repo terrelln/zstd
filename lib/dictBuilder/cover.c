@@ -440,6 +440,34 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
 }
 
 /**
+ * Check the validity of the parameters.
+ * If the parameters are valid and any are default, set them to the correct
+ * values.
+ * Returns 1 on success, 0 on failure.
+ */
+static int COVER_defaultParameters(COVER_params_t *parameters) {
+  /* kMin and d are required parameters */
+  if (parameters->d == 0 || parameters->kMin == 0) {
+    return 0;
+  }
+  /* d <= kMin */
+  if (parameters->d > parameters->kMin) {
+    return 0;
+  }
+  /* If kMax is set (non-zero) then kMin <= kMax */
+  if (parameters->kMax != 0 && parameters->kMax < parameters->kMin) {
+    return 0;
+  }
+  /* If kMax is set, then kStep must be as well */
+  if (parameters->kMax != 0 && parameters->kStep == 0) {
+    return 0;
+  }
+  parameters->kMax = MAX(parameters->kMin, parameters->kMax);
+  parameters->kStep = MAX(1, parameters->kStep);
+  return 1;
+}
+
+/**
  * Constructs a dictionary using a heuristic based on the following paper:
  *
  * Liao, Petri, Moffat, Wirth
@@ -453,19 +481,13 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(
   BYTE *const dict = (BYTE *)dictBuffer;
   const BYTE *const samples = (const BYTE *)samplesBuffer;
   /* Checks */
+  if (!COVER_defaultParameters(&parameters)) {
+    return ERROR(GENERIC);
+  }
   if (nbSamples == 0) {
     return ERROR(GENERIC);
   }
   if (totalSamplesSize > (size_t)COVER_MAX_SAMPLES_SIZE) {
-    return ERROR(GENERIC);
-  }
-  if (totalSamplesSize < parameters.d) {
-    return ERROR(GENERIC);
-  }
-  if (parameters.d > parameters.kMin) {
-    return ERROR(GENERIC);
-  }
-  if (parameters.kMin > parameters.kMax) {
     return ERROR(GENERIC);
   }
   if (dictBufferCapacity < ZDICT_DICTSIZE_MIN) {

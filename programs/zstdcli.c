@@ -204,7 +204,7 @@ static unsigned parseCoverParameters(const char* stringPtr, COVER_params_t *para
     memset(params, 0, sizeof(*params));
     for (; ;) {
         if (longCommandWArg(&stringPtr, "smoothing=")) { params->smoothing = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
-        if (longCommandWArg(&stringPtr, "kMin=") || longCommandWArg(&stringPtr, "kmin=")) { params->kMin = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
+        if (longCommandWArg(&stringPtr, "k=") || longCommandWArg(&stringPtr, "kMin=") || longCommandWArg(&stringPtr, "kmin=")) { params->kMin = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
         if (longCommandWArg(&stringPtr, "kStep=") || longCommandWArg(&stringPtr, "kstep=")) { params->kStep = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
         if (longCommandWArg(&stringPtr, "kMax=") || longCommandWArg(&stringPtr, "kmax=")) { params->kMax = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
         if (longCommandWArg(&stringPtr, "d=")) { params->d = readU32FromChar(&stringPtr); if (stringPtr[0]==',') { stringPtr++; continue; } else break; }
