@@ -281,6 +281,7 @@ int main(int argCount, const char* argv[])
     COVER_params_t coverParams;
     int cover = 0;
 #endif
+    int optimizeCover = 0;
 
     /* init */
     (void)recursive; (void)cLevelLast;    /* not used when ZSTD_NOBENCH set */
@@ -340,6 +341,7 @@ int main(int argCount, const char* argv[])
                     if (!strcmp(argument, "--train")) { operation=zom_train; outFileName=g_defaultDictName; continue; }
                     if (!strcmp(argument, "--maxdict")) { nextArgumentIsMaxDict=1; lastCommand=1; continue; }
                     if (!strcmp(argument, "--dictID")) { nextArgumentIsDictID=1; lastCommand=1; continue; }
+                    if (!strcmp(argument, "--optimize-cover")) { optimizeCover=1; continue; }
                     if (!strcmp(argument, "--no-dictID")) { FIO_setDictIDFlag(0); continue; }
                     if (!strcmp(argument, "--keep")) { FIO_setRemoveSrcFile(0); continue; }
                     if (!strcmp(argument, "--rm")) { FIO_setRemoveSrcFile(1); continue; }
@@ -553,11 +555,11 @@ int main(int argCount, const char* argv[])
     /* Check if dictionary builder is selected */
     if (operation==zom_train) {
 #ifndef ZSTD_NODICT
-        if (cover) {
+        if (cover || optimizeCover) {
             coverParams.compressionLevel = dictCLevel;
             coverParams.notificationLevel = displayLevel;
             coverParams.dictID = dictID;
-            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, NULL, &coverParams);
+            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, NULL, &coverParams, optimizeCover);
         } else {
             ZDICT_params_t dictParams;
             memset(&dictParams, 0, sizeof(dictParams));
@@ -565,7 +567,7 @@ int main(int argCount, const char* argv[])
             dictParams.selectivityLevel = dictSelect;
             dictParams.notificationLevel = displayLevel;
             dictParams.dictID = dictID;
-            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, &dictParams, NULL);
+            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, &dictParams, NULL, 0);
         }
 #endif
         goto _end;

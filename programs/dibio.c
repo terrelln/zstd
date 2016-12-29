@@ -31,6 +31,7 @@
 #include "mem.h"            /* read */
 #include "error_private.h"
 #include "dibio.h"
+#include "pool.h"
 
 
 /*-*************************************
@@ -229,7 +230,8 @@ size_t ZDICT_trainFromBuffer_unsafe(void* dictBuffer, size_t dictBufferCapacity,
 
 int DiB_trainFromFiles(const char* dictFileName, unsigned maxDictSize,
                        const char** fileNamesTable, unsigned nbFiles,
-                       ZDICT_params_t *params, COVER_params_t *coverParams)
+                       ZDICT_params_t *params, COVER_params_t *coverParams,
+                       int optimizeCover)
 {
     void* const dictBuffer = malloc(maxDictSize);
     size_t* const fileSizes = (size_t*)malloc(nbFiles * sizeof(size_t));
@@ -265,6 +267,22 @@ int DiB_trainFromFiles(const char* dictFileName, unsigned maxDictSize,
     DISPLAYLEVEL(3, "Shuffling input files\n");
     DiB_shuffle(fileNamesTable, nbFiles);
     nbFiles = DiB_loadFiles(srcBuffer, &benchedSize, fileSizes, fileNamesTable, nbFiles);
+
+    if (optimizeCover) {
+      POOL_ctx *threadPool = POOL_create(4, 3);
+      size_t error;
+      if (!threadPool) {
+        goto _cleanup;
+      }
+      error =
+          COVER_optimizeParameters(maxDictSize, srcBuffer, fileSizes, nbFiles,
+                                   threadPool, &POOL_add_generic, coverParams);
+      POOL_free(threadPool);
+      if (!ZDICT_isError(error)) {
+        DISPLAYLEVEL(2, "smoothing=%d\nkMin=%d\nkStep=%d\nkMax=%d\nd=%d\n", coverParams->smoothing, coverParams->kMin, coverParams->kStep, coverParams->kMax, coverParams->d);
+      }
+      goto _cleanup;
+    }
 
     {
       size_t dictSize;
