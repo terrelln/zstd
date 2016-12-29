@@ -14,13 +14,18 @@
 #include <stdlib.h> /* malloc, free, qsort */
 #include <string.h> /* memset */
 #include <time.h>   /* clock */
+#ifdef ZSTD_PTHREADS
+#include <pthread.h>
+#endif
 
 #include "mem.h"           /* read */
 #include "zstd_internal.h" /* includes zstd.h */
 #ifndef ZDICT_STATIC_LINKING_ONLY
 #define ZDICT_STATIC_LINKING_ONLY
 #endif
+#include "pool.h"
 #include "zdict.h"
+#include "zstd.h"
 
 /*-*************************************
 *  Constants
@@ -199,6 +204,7 @@ typedef struct {
 typedef struct {
   const BYTE *samples;
   size_t *offsets;
+  const size_t *samplesSizes;
   size_t nbSamples;
   U32 *suffix;
   size_t suffixSize;
@@ -504,6 +510,7 @@ static int COVER_init_ctx(COVER_ctx_t *ctx, const void *samplesBuffer,
   DISPLAYLEVEL(2, "Training on %u samples of total size %u\n", nbSamples,
                (U32)totalSamplesSize);
   ctx->samples = samples;
+  ctx->samplesSizes = samplesSizes;
   ctx->nbSamples = nbSamples;
   /* Partial suffix array */
   ctx->suffixSize = totalSamplesSize - d + 1;
@@ -576,8 +583,8 @@ static size_t COVER_buildDictionary(COVER_ctx_t *ctx, COVER_map_t *activeDmers,
     const U32 epochBegin = (U32)(epoch * epochSize);
     const U32 epochEnd = epochBegin + epochSize;
     size_t segmentSize;
-    COVER_segment_t segment = COVER_selectSegment(ctx, activeDmers, epochBegin,
-                                                  epochEnd, parameters);
+    COVER_segment_t segment =
+        COVER_selectSegment(ctx, activeDmers, epochBegin, epochEnd, parameters);
     segmentSize = MIN(segment.end - segment.begin + parameters.d - 1, tail);
     if (segmentSize == 0) {
       break;
@@ -663,4 +670,244 @@ _cleanup:
   COVER_destroy_ctx(&ctx);
   COVER_map_destroy(&activeDmers);
   return rc;
+}
+
+typedef struct COVER_best_s {
+#ifdef ZSTD_PTHREADS
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  size_t liveJobs;
+#endif
+  COVER_params_t parameters;
+  size_t size;
+} COVER_best_t;
+
+static int COVER_best_init(COVER_best_t *best) {
+  if (!best) {
+    return 1;
+  }
+#ifdef ZSTD_PTHREADS
+  if (pthread_mutex_init(&best->mutex, NULL)) {
+    return 1;
+  }
+  if (pthread_cond_init(&best->cond, NULL)) {
+    return 1;
+  }
+  liveJobs = 0;
+#endif
+  best->size = (size_t)-1;
+  memset(&best->parameters, 0, sizeof(best->parameters));
+  return 0;
+}
+
+static int COVER_best_wait(COVER_best_t *best) {
+  int rc = 0;
+  if (!best) {
+    return 1;
+  }
+#ifdef ZSTD_PTHREADS
+  rc |= pthread_mutex_lock(&best->mutex);
+  while (best->liveJobs != 0 && rc == 0) {
+    rc |= pthread_cond_wait(&best->cond, &best->mutex);
+  }
+  rc |= pthread_mutex_unlock(&best->mutex);
+#endif
+  return rc;
+}
+
+static int COVER_best_destroy(COVER_best_t *best) {
+  int rc = 0;
+  if (!best) {
+    return 0;
+  }
+  rc |= COVER_best_wait(best);
+#ifdef ZSTD_PTHREADS
+  rc |= pthread_mutex_destroy(&best->mutex);
+  rc |= pthread_cond_destroy(&best->cond);
+#endif
+  return rc;
+}
+
+static int COVER_best_start(COVER_best_t *best) {
+  if (!best) {
+    return 1;
+  }
+  int rc = 0;
+#ifdef ZSTD_PTHREADS
+  rc |= pthread_mutex_lock(&best->mutex);
+  ++best->liveJobs;
+  rc |= pthread_mutex_unlock(&best->mutex);
+#endif
+  return rc;
+}
+
+static int COVER_best_finish(COVER_best_t *best, COVER_params_t parameters,
+                             size_t size) {
+  int rc = 0;
+  if (!best) {
+    return 1;
+  }
+#ifdef ZSTD_PTHREADS
+  rc |= pthread_mutex_lock(&best->mutex);
+  --best->liveJobs;
+  if (best->liveJobs == 0) {
+    pthread_cond_broadcast(&best->cond, &best->mutex);
+  }
+#endif
+  if (size < best->size) {
+    best->parameters = parameters;
+    best->size = size;
+  }
+#ifdef ZSTD_PTHREADS
+  rc |= pthread_mutex_unlock(&best->mutex);
+#endif
+  return rc;
+}
+
+typedef struct COVER_tryParameters_data_s {
+  COVER_ctx_t *ctx;
+  COVER_best_t *best;
+  size_t dictBufferCapacity;
+  COVER_params_t parameters;
+} COVER_tryParameters_data_t;
+
+static void COVER_tryParameters(void *opaque) {
+  COVER_tryParameters_data_t *data = (COVER_tryParameters_data_t *)opaque;
+  COVER_ctx_t *ctx = data->ctx;
+  COVER_params_t parameters = data->parameters;
+  size_t dictBufferCapacity = data->dictBufferCapacity;
+  COVER_map_t activeDmers;
+  BYTE *const dict = (BYTE * const)malloc(dictBufferCapacity);
+  if (!COVER_map_init(&activeDmers, parameters.kMax - parameters.d + 1)) {
+    DISPLAYLEVEL(1, "Failed to allocate dmer map: out of memory\n");
+    goto _cleanup;
+  }
+  if (!dict) {
+    DISPLAYLEVEL(1, "Failed to allocate dictionary buffer\n");
+    goto _cleanup;
+  }
+  {
+    const size_t tail = COVER_buildDictionary(ctx, &activeDmers, dict,
+                                              dictBufferCapacity, parameters);
+    ZDICT_params_t zdictParams = COVER_translateParams(parameters);
+    dictBufferCapacity = ZDICT_finalizeDictionary(
+        dict, dictBufferCapacity, dict + tail, dictBufferCapacity - tail,
+        ctx->samples, ctx->samplesSizes, ctx->nbSamples, zdictParams);
+    if (ZDICT_isError(dictBufferCapacity)) {
+      DISPLAYLEVEL(1, "Failed to finalize dictionary\n");
+      goto _cleanup;
+    }
+  }
+  /* Check total compressed size */
+  {
+    /* Pointers */
+    ZSTD_CCtx *cctx;
+    ZSTD_CDict *cdict;
+    void *dst;
+    /* Local variables */
+    size_t totalCompressedSize = 0;
+    size_t dstCapacity;
+    size_t i;
+    /* Allocate dst with enough space to compress the maximum sized sample */
+    {
+      size_t maxSampleSize = 0;
+      for (i = 0; i < ctx->nbSamples; ++i) {
+        maxSampleSize = MAX(ctx->samplesSizes[i], maxSampleSize);
+      }
+      dstCapacity = ZSTD_compressBound(maxSampleSize);
+      dst = malloc(dstCapacity);
+    }
+    /* Create the cctx and cdict */
+    cctx = ZSTD_createCCtx();
+    cdict =
+        ZSTD_createCDict(dict, dictBufferCapacity, parameters.compressionLevel);
+    if (!dst || !cctx || !cdict) {
+      goto _compressError;
+    }
+    /* Compress each sample and sum their sizes (or error) */
+    for (i = 0; i < ctx->nbSamples; ++i) {
+      const size_t size = ZSTD_compress_usingCDict(
+          cctx, dst, dstCapacity, ctx->samples + ctx->offsets[i],
+          ctx->samplesSizes[i], cdict);
+      if (ZSTD_isError(size)) {
+        goto _compressError;
+      }
+      totalCompressedSize += size;
+    }
+    COVER_best_finish(data->best, parameters, totalCompressedSize);
+    goto _cleanup;
+  _compressError:
+    COVER_best_finish(data->best, parameters, ERROR(GENERIC));
+    ZSTD_freeCCtx(cctx);
+    ZSTD_freeCDict(cdict);
+    if (dst) {
+      free(dst);
+    }
+  }
+
+_cleanup:
+  COVER_map_destroy(&activeDmers);
+  free(data);
+}
+
+ZDICTLIB_API size_t COVER_optimizeParameters(
+    size_t dictBufferCapacity, const void *samplesBuffer,
+    const size_t *samplesSizes, unsigned nbSamples, void *threadPool,
+    POOL_add_function addJob, COVER_params_t *parameters) {
+  unsigned d;
+  COVER_best_t best;
+  if (COVER_best_init(&best)) {
+    return ERROR(GENERIC);
+  }
+  g_displayLevel = parameters->notificationLevel;
+  for (d = 6; d <= 12; d += 2) {
+    COVER_ctx_t ctx;
+    const unsigned min = 32;
+    const unsigned max = 1024;
+    const unsigned kStep = 8;
+    unsigned kMin = min;
+    unsigned kMax = max;
+    DISPLAYLEVEL(3, "d=%u\n", d);
+    if (COVER_init_ctx(&ctx, samplesBuffer, samplesSizes, nbSamples, d)) {
+      DISPLAYLEVEL(1, "Failed to initialize context\n");
+      COVER_best_destroy(&best);
+      return ERROR(GENERIC);
+    }
+    for (kMin = min; kMin <= max; kMin += kStep) {
+      DISPLAYLEVEL(3, "kMin=%u\n", kMin);
+      for (kMax = kMin; kMin <= max; kMax += kStep) {
+        unsigned smoothing;
+        DISPLAYLEVEL(3, "kMax=%u\n", kMax);
+        for (smoothing = kMin >> 2; smoothing <= kMax; smoothing += kMin >> 2) {
+          COVER_tryParameters_data_t *data =
+              malloc(sizeof(COVER_tryParameters_data_t));
+          DISPLAYLEVEL(3, "smoothing=%u\n", smoothing);
+          if (!data) {
+            DISPLAYLEVEL(1, "Failed to allocate parameters\n");
+            COVER_best_destroy(&best);
+            COVER_destroy_ctx(&ctx);
+            return ERROR(GENERIC);
+          }
+          data->ctx = &ctx;
+          data->best = &best;
+          data->dictBufferCapacity = dictBufferCapacity;
+          data->parameters = *parameters;
+          data->parameters.kMin = kMin;
+          data->parameters.kStep = kStep;
+          data->parameters.kMax = kMax;
+          data->parameters.smoothing = smoothing;
+          COVER_best_start(&best);
+          addJob(threadPool, &COVER_tryParameters, data);
+        }
+      }
+    }
+    COVER_best_wait(&best);
+    COVER_destroy_ctx(&ctx);
+  }
+  {
+    const size_t size = best.size;
+    *parameters = best.parameters;
+    COVER_best_destroy(&best);
+    return size;
+  }
 }

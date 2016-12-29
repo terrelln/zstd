@@ -119,6 +119,13 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCap
                               const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples,
                               COVER_params_t parameters);
 
+ZDICTLIB_API size_t COVER_optimizeParameters(size_t dictBufferCapacity,
+                                             const void *samplesBuffer,
+                                             const size_t *samplesSizes,
+                                             unsigned nbSamples,
+                                             void *threadPool,
+                                             int (*addJob)(void *, void (*)(void *), void *),
+                                             COVER_params_t *parameters);
 
 /*! ZDICT_finalizeDictionary() :
 
@@ -126,14 +133,18 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCap
     finalize dictionary by adding headers and statistics.
 
     Samples must be stored concatenated in a flat buffer `samplesBuffer`,
-    supplied with an array of sizes `samplesSizes`, providing the size of each sample in order.
+    supplied with an array of sizes `samplesSizes`, providing the size of each
+   sample in order.
 
     dictContentSize must be > ZDICT_CONTENTSIZE_MIN bytes.
-    maxDictSize must be >= dictContentSize, and must be > ZDICT_DICTSIZE_MIN bytes.
+    maxDictSize must be >= dictContentSize, and must be > ZDICT_DICTSIZE_MIN
+   bytes.
 
-    @return : size of dictionary stored into `dictBuffer` (<= `dictBufferCapacity`),
+    @return : size of dictionary stored into `dictBuffer` (<=
+   `dictBufferCapacity`),
               or an error code, which can be tested by ZDICT_isError().
-    note : ZDICT_finalizeDictionary() will push notifications into stderr if instructed to, using notificationLevel>0.
+    note : ZDICT_finalizeDictionary() will push notifications into stderr if
+   instructed to, using notificationLevel>0.
     note 2 : dictBuffer and customDictContent can overlap
 */
 #define ZDICT_CONTENTSIZE_MIN 256
