@@ -198,13 +198,13 @@ typedef struct {
 
 typedef struct {
   const BYTE *samples;
-  const size_t *offsets;
+  size_t *offsets;
   size_t nbSamples;
   U32 *suffix;
+  size_t suffixSize;
   U32 *freqs;
   U32 *dmerAt;
-  COVER_map_t *activeDmers;
-  COVER_params_t parameters;
+  unsigned d;
 } COVER_ctx_t;
 
 /* We need a global context for qsort... */
@@ -218,7 +218,7 @@ static COVER_ctx_t *g_ctx = NULL;
 static int COVER_cmp(COVER_ctx_t *ctx, const void *lp, const void *rp) {
   const U32 lhs = *(const U32 *)lp;
   const U32 rhs = *(const U32 *)rp;
-  return memcmp(ctx->samples + lhs, ctx->samples + rhs, ctx->parameters.d);
+  return memcmp(ctx->samples + lhs, ctx->samples + rhs, ctx->d);
 }
 
 /**
@@ -350,23 +350,20 @@ static void COVER_group(COVER_ctx_t *ctx, const void *group,
  * We add the smoothing in to give an advantage to longer segments.
  * The larger smoothing is, the more longer matches are favored.
  */
-static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
-                                           U32 end) {
-  const unsigned kMin = ctx->parameters.kMin;
-  const unsigned kMax = ctx->parameters.kMax;
-  const unsigned d = ctx->parameters.d;
-  const unsigned smoothing = ctx->parameters.smoothing;
+static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx,
+                                           COVER_map_t *activeDmers, U32 begin,
+                                           U32 end, COVER_params_t parameters) {
   /* Saves the best segment of any length tried */
   COVER_segment_t globalBestSegment = {0, 0, 0};
   /* For each segment length */
   U32 k;
-  for (k = kMin; k <= kMax; k += ctx->parameters.kStep) {
+  for (k = parameters.kMin; k <= parameters.kMax; k += parameters.kStep) {
     /* Save the best segment of this length */
     COVER_segment_t bestSegment = {0, 0, 0};
     COVER_segment_t activeSegment;
-    const size_t dmersInK = k - d + 1;
+    const size_t dmersInK = k - ctx->d + 1;
     /* Reset the activeDmers in the segment */
-    COVER_map_clear(ctx->activeDmers);
+    COVER_map_clear(activeDmers);
     activeSegment.begin = begin;
     activeSegment.end = begin;
     activeSegment.score = 0;
@@ -377,7 +374,7 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
       /* The dmerId for the dmer at the next position */
       U32 newDmer = ctx->dmerAt[activeSegment.end];
       /* The entry in activeDmers for this dmerId */
-      U32 *newDmerOcc = COVER_map_at(ctx->activeDmers, newDmer);
+      U32 *newDmerOcc = COVER_map_at(activeDmers, newDmer);
       /* If the dmer isn't already present in the segment add its score. */
       if (*newDmerOcc == 0) {
         /* The paper suggest using the L-0.5 norm, but experiments show that it
@@ -392,12 +389,12 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
       /* If the window is now too large, drop the first position */
       if (activeSegment.end - activeSegment.begin == dmersInK + 1) {
         U32 delDmer = ctx->dmerAt[activeSegment.begin];
-        U32 *delDmerOcc = COVER_map_at(ctx->activeDmers, delDmer);
+        U32 *delDmerOcc = COVER_map_at(activeDmers, delDmer);
         activeSegment.begin += 1;
         *delDmerOcc -= 1;
         /* If this is the last occurence of the dmer, subtract its score */
         if (*delDmerOcc == 0) {
-          COVER_map_remove(ctx->activeDmers, delDmer);
+          COVER_map_remove(activeDmers, delDmer);
           activeSegment.score -= ctx->freqs[delDmer];
         }
       }
@@ -422,7 +419,8 @@ static COVER_segment_t COVER_selectSegment(COVER_ctx_t *ctx, U32 begin,
       bestSegment.begin = newBegin;
       bestSegment.end = newEnd;
       /* Calculate the final score normalizing for segment length */
-      bestSegment.score /= (smoothing + (bestSegment.end - bestSegment.begin));
+      bestSegment.score /=
+          (parameters.smoothing + (bestSegment.end - bestSegment.begin));
     }
     /* If this segment is the best so far for any length save it */
     if (bestSegment.score > globalBestSegment.score) {
@@ -467,6 +465,149 @@ static int COVER_defaultParameters(COVER_params_t *parameters) {
   return 1;
 }
 
+static void COVER_destroy_ctx(COVER_ctx_t *ctx) {
+  if (!ctx) {
+    return;
+  }
+  if (ctx->suffix) {
+    free(ctx->suffix);
+  }
+  if (ctx->freqs) {
+    free(ctx->freqs);
+  }
+  if (ctx->dmerAt) {
+    free(ctx->dmerAt);
+  }
+  if (ctx->offsets) {
+    free(ctx->offsets);
+  }
+}
+
+/**
+ * Prepare a context for dictionary building.
+ * The context is only dependent on the parameter `d` and can used multiple
+ * times.
+ * Returns 0 on success or non-zero on error.
+ * The context must be destroyed with `COVER_destroy_ctx()`.
+ */
+static int COVER_init_ctx(COVER_ctx_t *ctx, const void *samplesBuffer,
+                          const size_t *samplesSizes, unsigned nbSamples,
+                          unsigned d) {
+  const BYTE *const samples = (const BYTE *)samplesBuffer;
+  const size_t totalSamplesSize = COVER_sum(samplesSizes, nbSamples);
+  /* Checks */
+  if (totalSamplesSize > (size_t)COVER_MAX_SAMPLES_SIZE) {
+    return 1;
+  }
+  /* Zero the context */
+  memset(ctx, 0, sizeof(*ctx));
+  DISPLAYLEVEL(2, "Training on %u samples of total size %u\n", nbSamples,
+               (U32)totalSamplesSize);
+  ctx->samples = samples;
+  ctx->nbSamples = nbSamples;
+  /* Partial suffix array */
+  ctx->suffixSize = totalSamplesSize - d + 1;
+  ctx->suffix = (U32 *)malloc(ctx->suffixSize * sizeof(U32));
+  /* Maps index to the dmerID */
+  ctx->dmerAt = (U32 *)malloc(ctx->suffixSize * sizeof(U32));
+  /* The offsets of each file */
+  ctx->offsets = (size_t *)malloc((nbSamples + 1) * sizeof(size_t));
+  if (!ctx->suffix || !ctx->dmerAt || !ctx->offsets) {
+    COVER_destroy_ctx(ctx);
+    return 1;
+  }
+  ctx->freqs = NULL;
+  ctx->d = d;
+
+  /* Fill offsets from the samlesSizes */
+  {
+    U32 i;
+    ctx->offsets[0] = 0;
+    for (i = 1; i <= nbSamples; ++i) {
+      ctx->offsets[i] = ctx->offsets[i - 1] + samplesSizes[i - 1];
+    }
+  }
+  DISPLAYLEVEL(2, "Constructing partial suffix array\n");
+  {
+    /* suffix is a partial suffix array.
+     * It only sorts suffixes by their first parameters.d bytes.
+     * The sort is stable, so each dmer group is sorted by position in input.
+     */
+    U32 i;
+    for (i = 0; i < ctx->suffixSize; ++i) {
+      ctx->suffix[i] = i;
+    }
+    /* qsort doesn't take an opaque pointer, so pass as a global */
+    g_ctx = ctx;
+    qsort(ctx->suffix, ctx->suffixSize, sizeof(U32), &COVER_strict_cmp);
+  }
+  DISPLAYLEVEL(2, "Computing frequencies\n");
+  /* For each dmer group (group of positions with the same first d bytes):
+   * 1. For each position we set dmerAt[position] = dmerID.  The dmerID is
+   *    (groupBeginPtr - suffix).  This allows us to go from position to
+   *    dmerID so we can look up values in freq.
+   * 2. We calculate how many samples the dmer occurs in and save it in
+   *    freqs[dmerId].
+   */
+  COVER_groupBy(ctx->suffix, ctx->suffixSize, sizeof(U32), ctx, &COVER_cmp,
+                &COVER_group);
+  ctx->freqs = ctx->suffix;
+  ctx->suffix = NULL;
+  return 0;
+}
+
+/**
+ * Given the prepared context build the dictionary.
+ */
+static size_t COVER_buildDictionary(COVER_ctx_t *ctx, COVER_map_t *activeDmers,
+                                    void *dictBuffer, size_t dictBufferCapacity,
+                                    COVER_params_t parameters) {
+  BYTE *const dict = (BYTE *)dictBuffer;
+  size_t tail = dictBufferCapacity;
+  /* Divide the data up into epochs of equal size.
+   * We will select at least one segment from each epoch.
+   */
+  const U32 epochs = (U32)(dictBufferCapacity / parameters.kMax);
+  const U32 epochSize = (U32)(ctx->suffixSize / epochs);
+  size_t epoch;
+  DISPLAYLEVEL(3, "Breaking content into %u epochs of size %u\n", epochs,
+               epochSize);
+  for (epoch = 0; tail > 0; epoch = (epoch + 1) % epochs) {
+    const U32 epochBegin = (U32)(epoch * epochSize);
+    const U32 epochEnd = epochBegin + epochSize;
+    size_t segmentSize;
+    COVER_segment_t segment = COVER_selectSegment(ctx, activeDmers, epochBegin,
+                                                  epochEnd, parameters);
+    segmentSize = MIN(segment.end - segment.begin + parameters.d - 1, tail);
+    if (segmentSize == 0) {
+      break;
+    }
+    /* We fill the dictionary from the back to allow the best segments to be
+     * referenced with the smallest offsets.
+     */
+    tail -= segmentSize;
+    memcpy(dict + tail, ctx->samples + segment.begin, segmentSize);
+    DISPLAYUPDATE(
+        2, "\r%u%%       ",
+        (U32)(((dictBufferCapacity - tail) * 100) / dictBufferCapacity));
+  }
+  DISPLAYLEVEL(2, "\r%79s\r", "");
+  return tail;
+}
+
+/**
+ * Translate from COVER_params_t to ZDICT_params_t required for finalizing the
+ * dictionary.
+ */
+static ZDICT_params_t COVER_translateParams(COVER_params_t parameters) {
+  ZDICT_params_t zdictParams;
+  memset(&zdictParams, 0, sizeof(zdictParams));
+  zdictParams.notificationLevel = parameters.notificationLevel;
+  zdictParams.dictID = parameters.dictID;
+  zdictParams.compressionLevel = parameters.compressionLevel;
+  return zdictParams;
+}
+
 /**
  * Constructs a dictionary using a heuristic based on the following paper:
  *
@@ -477,142 +618,49 @@ static int COVER_defaultParameters(COVER_params_t *parameters) {
 ZDICTLIB_API size_t COVER_trainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
     const size_t *samplesSizes, unsigned nbSamples, COVER_params_t parameters) {
-  const size_t totalSamplesSize = COVER_sum(samplesSizes, nbSamples);
   BYTE *const dict = (BYTE *)dictBuffer;
-  const BYTE *const samples = (const BYTE *)samplesBuffer;
+  COVER_ctx_t ctx;
+  COVER_map_t activeDmers;
+  size_t rc;
   /* Checks */
   if (!COVER_defaultParameters(&parameters)) {
-    return ERROR(GENERIC);
+    return 1;
   }
   if (nbSamples == 0) {
-    return ERROR(GENERIC);
-  }
-  if (totalSamplesSize > (size_t)COVER_MAX_SAMPLES_SIZE) {
-    return ERROR(GENERIC);
+    return 1;
   }
   if (dictBufferCapacity < ZDICT_DICTSIZE_MIN) {
-    return ERROR(dstSize_tooSmall);
+    return 1;
   }
+  /* Initialize global data */
   g_displayLevel = parameters.notificationLevel;
-  DISPLAYLEVEL(2, "Training on %u samples of total size %u\n", nbSamples,
-               (U32)totalSamplesSize);
-  {
-    const size_t suffixSize = totalSamplesSize - parameters.d + 1;
-    /* Partial suffix array */
-    U32 *suffix = (U32 *)malloc(suffixSize * sizeof(U32));
-    /* Maps index to the dmerID */
-    U32 *dmerAt = (U32 *)malloc(suffixSize * sizeof(U32));
-    /* The offsets of each file */
-    size_t *offsets = (size_t *)malloc((nbSamples + 1) * sizeof(size_t));
-    size_t rc = 0;
-    COVER_ctx_t ctx;
-    COVER_map_t activeDmers;
-    if (!COVER_map_init(&activeDmers, parameters.kMax - parameters.d + 1)) {
-      DISPLAYLEVEL(1, "Failed to allocate dmer map: out of memory\n");
-      rc = ERROR(memory_allocation);
-      goto _cleanup;
-    }
-    if (!suffix || !dmerAt || !offsets) {
-      rc = ERROR(memory_allocation);
-      goto _cleanup;
-    }
-    ctx.samples = samples;
-    ctx.offsets = offsets;
-    ctx.nbSamples = nbSamples;
-    ctx.suffix = suffix;
-    ctx.freqs = NULL;
-    ctx.dmerAt = dmerAt;
-    ctx.activeDmers = &activeDmers;
-    ctx.parameters = parameters;
-    /* qsort doesn't take an opaque pointer, so pass the context as a global */
-    g_ctx = &ctx;
-
-    /* Fill offsets from the samlesSizes */
-    {
-      U32 i;
-      offsets[0] = 0;
-      for (i = 1; i <= nbSamples; ++i) {
-        offsets[i] = offsets[i - 1] + samplesSizes[i - 1];
-      }
-    }
-    DISPLAYLEVEL(2, "Constructing partial suffix array\n");
-    {
-      /* suffix is a partial suffix array.
-       * It only sorts suffixes by their first parameters.d bytes.
-       * The sort is stable, so each dmer group is sorted by position in input.
-       */
-      U32 i;
-      for (i = 0; i < suffixSize; ++i) {
-        suffix[i] = i;
-      }
-      qsort(suffix, suffixSize, sizeof(U32), &COVER_strict_cmp);
-    }
-    DISPLAYLEVEL(2, "Computing frequencies\n");
-    /* For each dmer group (group of positions with the same first d bytes):
-     * 1. For each position we set dmerAt[position] = dmerID.  The dmerID is
-     *    (groupBeginPtr - suffix).  This allows us to go from position to
-     *    dmerID so we can look up values in freq.
-     * 2. We calculate how many samples the dmer occurs in and save it in
-     *    freqs[dmerId].
-     */
-    COVER_groupBy(suffix, suffixSize, sizeof(U32), &ctx, &COVER_cmp,
-                  &COVER_group);
-    ctx.freqs = suffix;
-    ctx.suffix = NULL;
-    DISPLAYLEVEL(2, "Building dictionary\n");
-    /* Select segments */
-    {
-      size_t tail = dictBufferCapacity;
-      /* Divide the data up into epochs of equal size.
-       * We will select at least one segment from each epoch.
-       */
-      const U32 epochs = (U32)(dictBufferCapacity / parameters.kMax);
-      const U32 epochSize = (U32)(suffixSize / epochs);
-      size_t epoch;
-      DISPLAYLEVEL(3, "Breaking content into %u epochs of size %u\n", epochs,
-                   epochSize);
-      for (epoch = 0; tail > 0; epoch = (epoch + 1) % epochs) {
-        const U32 epochBegin = (U32)(epoch * epochSize);
-        const U32 epochEnd = epochBegin + epochSize;
-        size_t segmentSize;
-        COVER_segment_t segment =
-            COVER_selectSegment(&ctx, epochBegin, epochEnd);
-        segmentSize = MIN(segment.end - segment.begin + parameters.d - 1, tail);
-        if (segmentSize == 0) {
-          break;
-        }
-        /* We fill the dictionary from the back to allow the best segments to be
-         * referenced with the smallest offsets.
-         */
-        tail -= segmentSize;
-        memcpy(dict + tail, samples + segment.begin, segmentSize);
-        DISPLAYUPDATE(
-            2, "\r%u%%       ",
-            (U32)(((dictBufferCapacity - tail) * 100) / dictBufferCapacity));
-      }
-      {
-        ZDICT_params_t zdictParams;
-        memset(&zdictParams, 0, sizeof(zdictParams));
-        zdictParams.notificationLevel = parameters.notificationLevel;
-        zdictParams.dictID = parameters.dictID;
-        zdictParams.compressionLevel = parameters.compressionLevel;
-        rc = ZDICT_finalizeDictionary(dict, dictBufferCapacity, dict + tail,
-                                      dictBufferCapacity - tail, samplesBuffer,
-                                      samplesSizes, nbSamples, zdictParams);
-      }
-    }
-    DISPLAYLEVEL(2, "\r%79s\r", "");
-    if (!ZSTD_isError(rc)) {
-      DISPLAYLEVEL(2, "Constructed dictionary of size %u\n", (U32)rc);
-    }
-  _cleanup:
-    if (suffix)
-      free(suffix);
-    if (dmerAt)
-      free(dmerAt);
-    if (offsets)
-      free(offsets);
-    COVER_map_destroy(&activeDmers);
-    return rc;
+  /* Initialize context and activeDmers */
+  if (COVER_init_ctx(&ctx, samplesBuffer, samplesSizes, nbSamples,
+                     parameters.d)) {
+    DISPLAYLEVEL(1, "Failed to initialize context\n");
+    rc = ERROR(GENERIC);
+    goto _cleanup;
   }
+  if (!COVER_map_init(&activeDmers, parameters.kMax - parameters.d + 1)) {
+    DISPLAYLEVEL(1, "Failed to allocate dmer map: out of memory\n");
+    rc = ERROR(GENERIC);
+    goto _cleanup;
+  }
+
+  DISPLAYLEVEL(2, "Building dictionary\n");
+  {
+    const size_t tail = COVER_buildDictionary(&ctx, &activeDmers, dictBuffer,
+                                              dictBufferCapacity, parameters);
+    ZDICT_params_t zdictParams = COVER_translateParams(parameters);
+    rc = ZDICT_finalizeDictionary(dict, dictBufferCapacity, dict + tail,
+                                  dictBufferCapacity - tail, samplesBuffer,
+                                  samplesSizes, nbSamples, zdictParams);
+  }
+  if (!ZSTD_isError(rc)) {
+    DISPLAYLEVEL(2, "Constructed dictionary of size %u\n", (U32)rc);
+  }
+_cleanup:
+  COVER_destroy_ctx(&ctx);
+  COVER_map_destroy(&activeDmers);
+  return rc;
 }
