@@ -735,10 +735,10 @@ static int COVER_best_destroy(COVER_best_t *best) {
 }
 
 static int COVER_best_start(COVER_best_t *best) {
+  int rc = 0;
   if (!best) {
     return 1;
   }
-  int rc = 0;
 #ifdef ZSTD_PTHREAD
   rc |= pthread_mutex_lock(&best->mutex);
   ++best->liveJobs;
@@ -753,21 +753,23 @@ static int COVER_best_finish(COVER_best_t *best, COVER_params_t parameters,
   if (!best) {
     return 1;
   }
+  {
 #ifdef ZSTD_PTHREAD
-  rc |= pthread_mutex_lock(&best->mutex);
-  --best->liveJobs;
-  size_t liveJobs = best->liveJobs;
+    size_t liveJobs = best->liveJobs;
+    rc |= pthread_mutex_lock(&best->mutex);
+    --best->liveJobs;
 #endif
-  if (size < best->size) {
-    best->parameters = parameters;
-    best->size = size;
-  }
+    if (size < best->size) {
+      best->parameters = parameters;
+      best->size = size;
+    }
 #ifdef ZSTD_PTHREAD
-  rc |= pthread_mutex_unlock(&best->mutex);
-  if (liveJobs == 0) {
-    pthread_cond_broadcast(&best->cond);
-  }
+    rc |= pthread_mutex_unlock(&best->mutex);
+    if (liveJobs == 0) {
+      pthread_cond_broadcast(&best->cond);
+    }
 #endif
+  }
   return rc;
 }
 
