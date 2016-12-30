@@ -120,6 +120,20 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCap
                               COVER_params_t parameters);
 
 /*! COVER_optimizeTrainFromBuffer() :
+    The same requirements as above hold for all the parameters except `parameters`.
+    This function tries many parameter combinations and picks the best parameters.
+    `*parameters` is filled with the best parameters found, and the dictionary
+    constructed with those parameters is stored in `dictBuffer`.
+
+    All of the {d, kMin, kStep, kMax} are optional, and smoothing is ignored.
+    If d is non-zero then we don't check multiple values of d, otherwise we check d = {6, 8, 10, 12}.
+    If kStep is non-zero then it is used, otherwise we pick 8.
+    If kMin and kMax are non-zero, then they limit the search space for kMin and kMax,
+    otherwise we check kMin and kMax values in the range [32, 1024].
+
+    @return : size of dictionary stored into `dictBuffer` (<= `dictBufferCapacity`)
+              or an error code, which can be tested with ZDICT_isError().
+              On success `*parameters` contains the parameters selected.
 */
 ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void* dictBuffer, size_t dictBufferCapacity,
                                      const void* samplesBuffer, const size_t *samplesSizes, unsigned nbSamples,

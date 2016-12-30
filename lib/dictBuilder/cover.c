@@ -609,7 +609,7 @@ static size_t COVER_buildDictionary(const COVER_ctx_t *ctx, U32 *freqs,
 static ZDICT_params_t COVER_translateParams(COVER_params_t parameters) {
   ZDICT_params_t zdictParams;
   memset(&zdictParams, 0, sizeof(zdictParams));
-  zdictParams.notificationLevel = parameters.notificationLevel;
+  zdictParams.notificationLevel = 1;
   zdictParams.dictID = parameters.dictID;
   zdictParams.compressionLevel = parameters.compressionLevel;
   return zdictParams;
@@ -677,6 +677,13 @@ _cleanup:
   return rc;
 }
 
+/**
+ * COVER_best_t is used for two purposes:
+ * 1. Synchronizing threads.
+ * 2. Saving the best parameters and dictionary.
+ *
+ * All of the methods are thread safe if `ZSTD_PTHREAD` is defined.
+ */
 typedef struct COVER_best_s {
 #ifdef ZSTD_PTHREAD
   pthread_mutex_t mutex;
@@ -689,6 +696,9 @@ typedef struct COVER_best_s {
   size_t compressedSize;
 } COVER_best_t;
 
+/**
+ * Initialize the `COVER_best_t`.
+ */
 static int COVER_best_init(COVER_best_t *best) {
   if (!best) {
     return 1;
@@ -709,6 +719,9 @@ static int COVER_best_init(COVER_best_t *best) {
   return 0;
 }
 
+/**
+ * Wait until liveJobs == 0.
+ */
 static int COVER_best_wait(COVER_best_t *best) {
   int rc = 0;
   if (!best) {
@@ -724,6 +737,9 @@ static int COVER_best_wait(COVER_best_t *best) {
   return rc;
 }
 
+/**
+ * Call COVER_best_wait() and then destroy the COVER_best_t.
+ */
 static int COVER_best_destroy(COVER_best_t *best) {
   int rc = 0;
   if (!best) {
@@ -740,6 +756,10 @@ static int COVER_best_destroy(COVER_best_t *best) {
   return rc;
 }
 
+/**
+ * Called when a thread is about to be launched.
+ * Increments liveJobs.
+ */
 static int COVER_best_start(COVER_best_t *best) {
   int rc = 0;
   if (!best) {
@@ -753,6 +773,11 @@ static int COVER_best_start(COVER_best_t *best) {
   return rc;
 }
 
+/**
+ * Called when a thread finishes executing, both on error or success.
+ * Decrements liveJobs and signals any waiting threads if liveJobs == 0.
+ * If this dictionary is the best so far save it and its parameters.
+ */
 static int COVER_best_finish(COVER_best_t *best, size_t compressedSize,
                              COVER_params_t parameters, void *dict,
                              size_t dictSize) {
@@ -796,6 +821,11 @@ typedef struct COVER_tryParameters_data_s {
   COVER_params_t parameters;
 } COVER_tryParameters_data_t;
 
+/**
+ * Tries a set of parameters and upates the COVER_best_t with the results.
+ * This function is thread safe if ZSTD_PTHREAD is defined.
+ * It takes its parameters as an *OWNING* opaque pointer to support threading.
+ */
 static void COVER_tryParameters(void *opaque) {
   COVER_tryParameters_data_t *data = (COVER_tryParameters_data_t *)opaque;
   const COVER_ctx_t *ctx = data->ctx;
@@ -812,7 +842,9 @@ static void COVER_tryParameters(void *opaque) {
     DISPLAYLEVEL(1, "Failed to allocate dictionary buffer\n");
     goto _cleanup;
   }
+  /* Copy the frequencies because we need to modify them */
   memcpy(freqs, ctx->freqs, ctx->suffixSize * sizeof(U32));
+  /* Build the dictionary */
   {
     const size_t tail = COVER_buildDictionary(ctx, freqs, &activeDmers, dict,
                                               dictBufferCapacity, parameters);
@@ -890,37 +922,43 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
                                                   const size_t *samplesSizes,
                                                   unsigned nbSamples,
                                                   COVER_params_t *parameters) {
-  unsigned d;
+  /* constants */
   const unsigned dMin = parameters->d == 0 ? 6 : parameters->d;
   const unsigned dMax = parameters->d == 0 ? 12 : parameters->d;
+  const unsigned min = parameters->kMin == 0 ? 32 : parameters->kMin;
+  const unsigned max = parameters->kMax == 0 ? 1024 : parameters->kMax;
+  const unsigned kStep = parameters->kStep == 0 ? 8 : parameters->kStep;
+  /* Local variables */
+  unsigned d;
   COVER_best_t best;
   if (COVER_best_init(&best)) {
     return ERROR(GENERIC);
   }
   g_displayLevel = parameters->notificationLevel;
+  /* Loop through d first because each new value needs a new context */
   for (d = dMin; d <= dMax; d += 2) {
-    COVER_ctx_t ctx;
-    const unsigned min = parameters->kMin == 0 ? 32 : parameters->kMin;
-    const unsigned max = parameters->kMax == 0 ? 1024 : parameters->kMax;
-    const unsigned kStep = parameters->kStep == 0 ? 8 : parameters->kStep;
     unsigned kMin;
-    DISPLAYLEVEL(2, "d=%u\n", d);
+    /* Initialize the context for this value of d */
+    COVER_ctx_t ctx;
+    DISPLAYLEVEL(3, "d=%u\n", d);
     if (COVER_ctx_init(&ctx, samplesBuffer, samplesSizes, nbSamples, d)) {
       DISPLAYLEVEL(1, "Failed to initialize context\n");
       COVER_best_destroy(&best);
       return ERROR(GENERIC);
     }
+    /* Loop through the rest of the parameters reusing the same context */
     for (kMin = min; kMin <= max; kMin <<= 1) {
       unsigned kMax;
-      DISPLAYLEVEL(2, "kMin=%u\n", kMin);
+      DISPLAYLEVEL(3, "kMin=%u\n", kMin);
       for (kMax = kMin; kMax <= max; kMax <<= 1) {
         unsigned smoothing;
-        DISPLAYLEVEL(2, "kMax=%u\n", kMax);
+        DISPLAYLEVEL(3, "kMax=%u\n", kMax);
         for (smoothing = kMin >> 2; smoothing <= (kMin << 1); smoothing <<= 1) {
+          /* Prepare the arguments */
           COVER_tryParameters_data_t *data =
               (COVER_tryParameters_data_t *)malloc(
                   sizeof(COVER_tryParameters_data_t));
-          DISPLAYLEVEL(2, "smoothing=%u\n", smoothing);
+          DISPLAYLEVEL(3, "smoothing=%u\n", smoothing);
           if (!data) {
             DISPLAYLEVEL(1, "Failed to allocate parameters\n");
             COVER_best_destroy(&best);
@@ -936,6 +974,7 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
           data->parameters.kStep = kStep;
           data->parameters.kMax = kMax;
           data->parameters.smoothing = smoothing;
+          /* Call the function and pass ownership of data to it */
           COVER_best_start(&best);
           COVER_tryParameters(data);
         }
@@ -944,6 +983,7 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
     COVER_best_wait(&best);
     COVER_ctx_destroy(&ctx);
   }
+  /* Fill the output buffer and parameters with output of the best parameters */
   {
     const size_t dictSize = best.dictSize;
     if (ZSTD_isError(best.compressedSize)) {
