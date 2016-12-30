@@ -24,7 +24,6 @@
 #define ZDICT_STATIC_LINKING_ONLY
 #endif
 #include "zdict.h"
-#include "zstd.h"
 
 /*-*************************************
 *  Constants
