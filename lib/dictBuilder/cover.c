@@ -884,10 +884,12 @@ _cleanup:
   }
 }
 
-ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(
-    void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
-    const size_t *samplesSizes, unsigned nbSamples,
-    COVER_params_t *parameters) {
+ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
+                                                  size_t dictBufferCapacity,
+                                                  const void *samplesBuffer,
+                                                  const size_t *samplesSizes,
+                                                  unsigned nbSamples,
+                                                  COVER_params_t *parameters) {
   unsigned d;
   const unsigned dMin = parameters->d == 0 ? 6 : parameters->d;
   const unsigned dMax = parameters->d == 0 ? 12 : parameters->d;
@@ -916,7 +918,8 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(
         DISPLAYLEVEL(2, "kMax=%u\n", kMax);
         for (smoothing = kMin >> 2; smoothing <= (kMin << 1); smoothing <<= 1) {
           COVER_tryParameters_data_t *data =
-              malloc(sizeof(COVER_tryParameters_data_t));
+              (COVER_tryParameters_data_t *)malloc(
+                  sizeof(COVER_tryParameters_data_t));
           DISPLAYLEVEL(2, "smoothing=%u\n", smoothing);
           if (!data) {
             DISPLAYLEVEL(1, "Failed to allocate parameters\n");
