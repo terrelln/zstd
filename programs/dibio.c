@@ -275,11 +275,13 @@ int DiB_trainFromFiles(const char* dictFileName, unsigned maxDictSize,
                                                     srcBuffer, fileSizes, nbFiles,
                                                     *params);
         } else if (optimizeCover) {
-            dictSize = COVER_optimizeTrainFromBuffer(dictBuffer, maxDictSize,
-                                                     srcBuffer, fileSizes, nbFiles,
-                                                     NULL, NULL, coverParams);
+            dictSize = COVER_optimizeTrainFromBuffer(
+                dictBuffer, maxDictSize, srcBuffer, fileSizes, nbFiles,
+                coverParams);
             if (!ZDICT_isError(dictSize)) {
-                DISPLAYLEVEL(2, "smoothing=%d\nkMin=%d\nkStep=%d\nkMax=%d\nd=%d\n", coverParams->smoothing, coverParams->kMin, coverParams->kStep, coverParams->kMax, coverParams->d);
+                DISPLAYLEVEL(2, "smoothing=%d\nkMin=%d\nkStep=%d\nkMax=%d\nd=%d\n",
+                             coverParams->smoothing, coverParams->kMin,
+                             coverParams->kStep, coverParams->kMax, coverParams->d);
             }
         } else {
             dictSize = COVER_trainFromBuffer(dictBuffer, maxDictSize,

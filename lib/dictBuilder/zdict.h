@@ -119,10 +119,11 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCap
                               const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples,
                               COVER_params_t parameters);
 
+/*! COVER_optimizeTrainFromBuffer() :
+*/
 ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void* dictBuffer, size_t dictBufferCapacity,
-                                      const void* samplesBuffer, const size_t *samplesSizes, unsigned nbSamples,
-                                      void *threadPool, int (*addJob)(void *, void (*)(void *), void *),
-                                      COVER_params_t *parameters);
+                                     const void* samplesBuffer, const size_t *samplesSizes, unsigned nbSamples,
+                                     COVER_params_t *parameters);
 
 /*! ZDICT_finalizeDictionary() :
 

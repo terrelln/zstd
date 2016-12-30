@@ -887,8 +887,7 @@ _cleanup:
 
 ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(
     void *dictBuffer, size_t dictBufferCapacity, const void *samplesBuffer,
-    const size_t *samplesSizes, unsigned nbSamples, void *threadPool,
-    int (*addJob)(void *, void (*)(void *), void *),
+    const size_t *samplesSizes, unsigned nbSamples,
     COVER_params_t *parameters) {
   unsigned d;
   const unsigned dMin = parameters->d == 0 ? 6 : parameters->d;
@@ -936,16 +935,7 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(
           data->parameters.kMax = kMax;
           data->parameters.smoothing = smoothing;
           COVER_best_start(&best);
-          if (threadPool) {
-            if (addJob(threadPool, &COVER_tryParameters, data)) {
-              DISPLAYLEVEL(1, "Failed add job to thread pool\n");
-              COVER_best_destroy(&best);
-              COVER_ctx_destroy(&ctx);
-              return ERROR(GENERIC);
-            }
-          } else {
-            COVER_tryParameters(data);
-          }
+          COVER_tryParameters(data);
         }
       }
     }
