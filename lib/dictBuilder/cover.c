@@ -819,7 +819,7 @@ static void COVER_tryParameters(void *opaque) {
     ZDICT_params_t zdictParams = COVER_translateParams(parameters);
     dictBufferCapacity = ZDICT_finalizeDictionary(
         dict, dictBufferCapacity, dict + tail, dictBufferCapacity - tail,
-        ctx->samples, ctx->samplesSizes, ctx->nbSamples, zdictParams);
+        ctx->samples, ctx->samplesSizes, (unsigned)ctx->nbSamples, zdictParams);
     if (ZDICT_isError(dictBufferCapacity)) {
       DISPLAYLEVEL(1, "Failed to finalize dictionary\n");
       goto _cleanup;
