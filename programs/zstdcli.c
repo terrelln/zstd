@@ -281,7 +281,6 @@ int main(int argCount, const char* argv[])
     COVER_params_t coverParams;
     int cover = 0;
 #endif
-    int optimizeCover = 0;
 
     /* init */
     (void)recursive; (void)cLevelLast;    /* not used when ZSTD_NOBENCH set */
@@ -341,18 +340,21 @@ int main(int argCount, const char* argv[])
                     if (!strcmp(argument, "--train")) { operation=zom_train; outFileName=g_defaultDictName; continue; }
                     if (!strcmp(argument, "--maxdict")) { nextArgumentIsMaxDict=1; lastCommand=1; continue; }
                     if (!strcmp(argument, "--dictID")) { nextArgumentIsDictID=1; lastCommand=1; continue; }
-                    if (!strcmp(argument, "--optimize-cover")) { optimizeCover=1; continue; }
                     if (!strcmp(argument, "--no-dictID")) { FIO_setDictIDFlag(0); continue; }
                     if (!strcmp(argument, "--keep")) { FIO_setRemoveSrcFile(0); continue; }
                     if (!strcmp(argument, "--rm")) { FIO_setRemoveSrcFile(1); continue; }
 
                     /* long commands with arguments */
-                    if (longCommandWArg(&argument, "--cover=")) {
 #ifndef  ZSTD_NODICT
+                    if (longCommandWArg(&argument, "--cover=")) {
                       cover=1; if (!parseCoverParameters(argument, &coverParams)) CLEAN_RETURN(badusage(programName));
-#endif
                       continue;
                     }
+                    if (longCommandWArg(&argument, "--optimize-cover=")) {
+                      cover=2; if (!parseCoverParameters(argument, &coverParams)) CLEAN_RETURN(badusage(programName));
+                      continue;
+                    }
+#endif
                     if (longCommandWArg(&argument, "--memlimit=")) { memLimit = readU32FromChar(&argument); continue; }
                     if (longCommandWArg(&argument, "--memory=")) { memLimit = readU32FromChar(&argument); continue; }
                     if (longCommandWArg(&argument, "--memlimit-decompress=")) { memLimit = readU32FromChar(&argument); continue; }
@@ -555,11 +557,11 @@ int main(int argCount, const char* argv[])
     /* Check if dictionary builder is selected */
     if (operation==zom_train) {
 #ifndef ZSTD_NODICT
-        if (cover || optimizeCover) {
+        if (cover) {
             coverParams.compressionLevel = dictCLevel;
             coverParams.notificationLevel = displayLevel;
             coverParams.dictID = dictID;
-            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, NULL, &coverParams, optimizeCover);
+            DiB_trainFromFiles(outFileName, maxDictSize, filenameTable, filenameIdx, NULL, &coverParams, cover - 1);
         } else {
             ZDICT_params_t dictParams;
             memset(&dictParams, 0, sizeof(dictParams));

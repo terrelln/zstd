@@ -91,9 +91,9 @@ ZDICTLIB_API size_t ZDICT_trainFromBuffer_advanced(void* dictBuffer, size_t dict
     kMin and d are the only required parameters.
 */
 typedef struct {
-    unsigned d;                  /* dmer size : constraint: <= kMin */
+    unsigned d;                  /* dmer size : constraint: <= kMin : Should probably be in the range [6, 16]. */
     unsigned kMin;               /* Minimum segment size : constraint: > 0 */
-    unsigned kStep;              /* Try segments [kMin, kMin + kStep, ..., kMax] : 0 (default) only if kMax == 0 */
+    unsigned kStep;              /* Try kStep segment lengths uniformly distributed in the range [kMin, kMax] : 0 (default) only if kMax == 0 */
     unsigned kMax;               /* Maximum segment size : 0 = kMin (default) : constraint : 0 or >= kMin */
     unsigned smoothing;          /* Higher smoothing => larger segments are selected.  Only useful if kMax > kMin. */
 
@@ -119,13 +119,10 @@ ZDICTLIB_API size_t COVER_trainFromBuffer(void* dictBuffer, size_t dictBufferCap
                               const void* samplesBuffer, const size_t* samplesSizes, unsigned nbSamples,
                               COVER_params_t parameters);
 
-ZDICTLIB_API size_t COVER_optimizeParameters(size_t dictBufferCapacity,
-                                             const void *samplesBuffer,
-                                             const size_t *samplesSizes,
-                                             unsigned nbSamples,
-                                             void *threadPool,
-                                             int (*addJob)(void *, void (*)(void *), void *),
-                                             COVER_params_t *parameters);
+ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void* dictBuffer, size_t dictBufferCapacity,
+                                      const void* samplesBuffer, const size_t *samplesSizes, unsigned nbSamples,
+                                      void *threadPool, int (*addJob)(void *, void (*)(void *), void *),
+                                      COVER_params_t *parameters);
 
 /*! ZDICT_finalizeDictionary() :
 

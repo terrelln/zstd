@@ -31,7 +31,6 @@
 #include "mem.h"            /* read */
 #include "error_private.h"
 #include "dibio.h"
-#include "pool.h"
 
 
 /*-*************************************
@@ -268,42 +267,33 @@ int DiB_trainFromFiles(const char* dictFileName, unsigned maxDictSize,
     DiB_shuffle(fileNamesTable, nbFiles);
     nbFiles = DiB_loadFiles(srcBuffer, &benchedSize, fileSizes, fileNamesTable, nbFiles);
 
-    if (optimizeCover) {
-      POOL_ctx *threadPool = POOL_create(4, 3);
-      size_t error;
-      if (!threadPool) {
-        goto _cleanup;
-      }
-      error =
-          COVER_optimizeParameters(maxDictSize, srcBuffer, fileSizes, nbFiles,
-                                   threadPool, &POOL_add_generic, coverParams);
-      POOL_free(threadPool);
-      if (!ZDICT_isError(error)) {
-        DISPLAYLEVEL(2, "smoothing=%d\nkMin=%d\nkStep=%d\nkMax=%d\nd=%d\n", coverParams->smoothing, coverParams->kMin, coverParams->kStep, coverParams->kMax, coverParams->d);
-      }
-      goto _cleanup;
-    }
-
     {
-      size_t dictSize;
-      if (params) {
-        DiB_fillNoise((char*)srcBuffer + benchedSize, NOISELENGTH);   /* guard band, for end of buffer condition */
-        dictSize = ZDICT_trainFromBuffer_unsafe(dictBuffer, maxDictSize,
-                                                srcBuffer, fileSizes, nbFiles,
-                                                *params);
-      } else {
-        dictSize = COVER_trainFromBuffer(dictBuffer, maxDictSize,
-                                         srcBuffer, fileSizes, nbFiles,
-                                         *coverParams);
-      }
-      if (ZDICT_isError(dictSize)) {
-          DISPLAYLEVEL(1, "dictionary training failed : %s \n", ZDICT_getErrorName(dictSize));   /* should not happen */
-          result = 1;
-          goto _cleanup;
-      }
-      /* save dict */
-      DISPLAYLEVEL(2, "Save dictionary of size %u into file %s \n", (U32)dictSize, dictFileName);
-      DiB_saveDict(dictFileName, dictBuffer, dictSize);
+        size_t dictSize;
+        if (params) {
+            DiB_fillNoise((char*)srcBuffer + benchedSize, NOISELENGTH);   /* guard band, for end of buffer condition */
+            dictSize = ZDICT_trainFromBuffer_unsafe(dictBuffer, maxDictSize,
+                                                    srcBuffer, fileSizes, nbFiles,
+                                                    *params);
+        } else if (optimizeCover) {
+            dictSize = COVER_optimizeTrainFromBuffer(dictBuffer, maxDictSize,
+                                                     srcBuffer, fileSizes, nbFiles,
+                                                     NULL, NULL, coverParams);
+            if (!ZDICT_isError(dictSize)) {
+                DISPLAYLEVEL(2, "smoothing=%d\nkMin=%d\nkStep=%d\nkMax=%d\nd=%d\n", coverParams->smoothing, coverParams->kMin, coverParams->kStep, coverParams->kMax, coverParams->d);
+            }
+        } else {
+            dictSize = COVER_trainFromBuffer(dictBuffer, maxDictSize,
+                                             srcBuffer, fileSizes, nbFiles,
+                                             *coverParams);
+        }
+        if (ZDICT_isError(dictSize)) {
+            DISPLAYLEVEL(1, "dictionary training failed : %s \n", ZDICT_getErrorName(dictSize));   /* should not happen */
+            result = 1;
+            goto _cleanup;
+        }
+        /* save dict */
+        DISPLAYLEVEL(2, "Save dictionary of size %u into file %s \n", (U32)dictSize, dictFileName);
+        DiB_saveDict(dictFileName, dictBuffer, dictSize);
     }
 
     /* clean up */
