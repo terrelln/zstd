@@ -765,8 +765,8 @@ static int COVER_best_finish(COVER_best_t *best, size_t compressedSize,
 #ifdef ZSTD_PTHREAD
     size_t liveJobs;
     rc |= pthread_mutex_lock(&best->mutex);
-    liveJobs = best->liveJobs;
     --best->liveJobs;
+    liveJobs = best->liveJobs;
 #endif
     if (compressedSize < best->compressedSize) {
       if (!best->dict || best->dictSize < dictSize) {
