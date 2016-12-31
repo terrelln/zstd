@@ -25,9 +25,6 @@ extern "C" {
  * http://www.cse.wustl.edu/~schmidt/win32-cv-1.html
  */
 
-#ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
-#endif
 #include <windows.h>
 
 /* mutex */
