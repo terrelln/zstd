@@ -928,6 +928,7 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
   const unsigned min = parameters->kMin == 0 ? 32 : parameters->kMin;
   const unsigned max = parameters->kMax == 0 ? 1024 : parameters->kMax;
   const unsigned kStep = parameters->kStep == 0 ? 8 : parameters->kStep;
+  const unsigned step = MAX((max - min) / kStep, 1);
   /* Local variables */
   unsigned d;
   COVER_best_t best;
@@ -947,13 +948,13 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
       return ERROR(GENERIC);
     }
     /* Loop through the rest of the parameters reusing the same context */
-    for (kMin = min; kMin <= max; kMin <<= 1) {
+    for (kMin = min; kMin <= max; kMin += step) {
       unsigned kMax;
       DISPLAYLEVEL(3, "kMin=%u\n", kMin);
-      for (kMax = kMin; kMax <= max; kMax <<= 1) {
+      for (kMax = kMin; kMax <= max; kMax += step) {
         unsigned smoothing;
         DISPLAYLEVEL(3, "kMax=%u\n", kMax);
-        for (smoothing = kMin >> 2; smoothing <= (kMin << 1); smoothing <<= 1) {
+        for (smoothing = kMin / 4; smoothing <= kMin * 2; smoothing *= 2) {
           /* Prepare the arguments */
           COVER_tryParameters_data_t *data =
               (COVER_tryParameters_data_t *)malloc(
