@@ -48,8 +48,10 @@ ZDICT_FILES := $(ZSTDDIR)/dictBuilder/*.c
 # Define *.exe as extension for Windows systems
 ifneq (,$(filter Windows%,$(OS)))
 EXT =.exe
+PTHREAD = -DZSTD_PTHREAD
 else
 EXT =
+PTHREAD = -pthread -DZSTD_PTHREAD
 endif
 
 VOID = /dev/null
@@ -159,7 +161,7 @@ else
 endif
 
 pool  : pool.c $(ZSTDDIR)/common/pool.c
-	$(CC)    $(FLAGS) -pthread -DZSTD_PTHREAD $^ -o $@$(EXT)
+	$(CC)    $(FLAGS) $(PTHREAD) $^ -o $@$(EXT)
 
 namespaceTest:
 	if $(CC) namespaceTest.c ../lib/common/xxhash.c -o $@ ; then echo compilation should fail; exit 1 ; fi
@@ -225,7 +227,7 @@ zstd-playTests: datagen
 	file $(ZSTD)
 	ZSTD="$(QEMU_SYS) $(ZSTD)" ./playTests.sh $(ZSTDRTTEST)
 
-test: test-zstd test-fullbench test-fuzzer test-zstream test-longmatch test-invalidDictionaries
+test: test-zstd test-fullbench test-fuzzer test-zstream test-longmatch test-invalidDictionaries test-pool
 
 test32: test-zstd32 test-fullbench32 test-fuzzer32 test-zstream32
 
