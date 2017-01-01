@@ -59,7 +59,7 @@ extern "C" {
 typedef struct {
     HANDLE handle;
     void* (*start_routine)(void*);
-    void*varg;
+    void* arg;
 } pthread_t;
 
 int pthread_create(pthread_t* thread, const void* unused,
