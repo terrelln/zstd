@@ -14,7 +14,7 @@
 #ifdef ZSTD_PTHREAD
 
 #ifdef _WIN32
-#define PC(call) do { call } while (0)
+#define PC(call) do { call; } while (0)
 #else
 #define PC(call) do { if (call) exit(1); } while (0)
 #endif
