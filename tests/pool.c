@@ -2,6 +2,7 @@
 #include "threading.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define ASSERT_TRUE(p)                                                         \
   do {                                                                         \
@@ -20,10 +21,14 @@ struct data {
 
 void fn(void *opaque) {
   struct data *data = (struct data *)opaque;
-  pthread_mutex_lock(&data->mutex);
+  if (pthread_mutex_lock(&data->mutex)) {
+    exit(2);
+  }
   data->data[data->i] = data->i;
   ++data->i;
-  pthread_mutex_unlock(&data->mutex);
+  if (pthread_mutex_unlock(&data->mutex)) {
+    exit(3);
+  }
 }
 
 int testOrder(size_t numThreads, size_t queueLog) {
@@ -31,7 +36,9 @@ int testOrder(size_t numThreads, size_t queueLog) {
   POOL_ctx *ctx = POOL_create(numThreads, queueLog);
   ASSERT_TRUE(ctx);
   data.i = 0;
-  pthread_mutex_init(&data.mutex, NULL);
+  if (pthread_mutex_init(&data.mutex, NULL)) {
+    exit(4);
+  }
   {
     size_t i;
     for (i = 0; i < 128; ++i) {
@@ -46,7 +53,9 @@ int testOrder(size_t numThreads, size_t queueLog) {
       ASSERT_EQ(i, data.data[i]);
     }
   }
-  pthread_mutex_destroy(&data.mutex);
+  if (pthread_mutex_destroy(&data.mutex)) {
+    exit(5);
+  }
   return 0;
 }
 
