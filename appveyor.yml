@@ -2,7 +2,7 @@ version: 1.0.{build}
 environment:
   matrix:
   - COMPILER: "gcc"
-    MAKE_PARAMS: '"make -C tests test-pool && make test && make lib && make -C tests test-symbols fullbench-dll fullbench-lib"'
+    MAKE_PARAMS: '"make test && make lib && make -C tests test-symbols fullbench-dll fullbench-lib"'
     PLATFORM: "mingw64"
   - COMPILER: "gcc"
     MAKE_PARAMS: "make test"
@@ -40,6 +40,7 @@ build_script:
   - if [%PLATFORM%]==[mingw64] SET PATH=%PATH_MINGW64%;%PATH_ORIGINAL%
   - if [%PLATFORM%]==[mingw64] (
       make clean &&
+      make -C tests test-pool &&
       ECHO *** &&
       ECHO *** Building clang &&
       ECHO *** &&

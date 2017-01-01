@@ -25,6 +25,8 @@ extern "C" {
  * http://www.cse.wustl.edu/~schmidt/win32-cv-1.html
  */
 
+#define WINVER       0x0600
+#define _WIN32_WINNT 0x0600
 #include <windows.h>
 
 /* mutex */
