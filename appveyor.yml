@@ -2,10 +2,10 @@ version: 1.0.{build}
 environment:
   matrix:
   - COMPILER: "gcc"
-    MAKE_PARAMS: '"make test && make lib && make -C tests test-symbols fullbench-dll fullbench-lib"'
+    MAKE_PARAMS: '"make test && make lib && make -C tests test-pool test-symbols fullbench-dll fullbench-lib"'
     PLATFORM: "mingw64"
   - COMPILER: "gcc"
-    MAKE_PARAMS: "make test"
+    MAKE_PARAMS: "make test && make -C tests test-pool"
     PLATFORM: "mingw32"
   - COMPILER: "visual"
     CONFIGURATION: "Debug"
