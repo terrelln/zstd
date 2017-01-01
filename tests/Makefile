@@ -160,7 +160,7 @@ else
 	$(CC) $(FLAGS) $^ -o $@$(EXT) -Wl,-rpath=$(ZSTDDIR) $(ZSTDDIR)/libzstd.so
 endif
 
-pool  : pool.c $(ZSTDDIR)/common/pool.c
+pool  : pool.c $(ZSTDDIR)/common/pool.c $(ZSTDDIR)/common/threading.c
 	$(CC)    $(FLAGS) $(PTHREAD) $^ -o $@$(EXT)
 
 namespaceTest:
