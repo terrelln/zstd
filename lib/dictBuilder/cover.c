@@ -15,7 +15,7 @@
 #include <string.h> /* memset */
 #include <time.h>   /* clock */
 #ifdef ZSTD_PTHREAD
-#include <pthread.h>
+#include "threading.h"
 #endif
 
 #include "mem.h"           /* read */
@@ -699,78 +699,67 @@ typedef struct COVER_best_s {
 /**
  * Initialize the `COVER_best_t`.
  */
-static int COVER_best_init(COVER_best_t *best) {
+static void COVER_best_init(COVER_best_t *best) {
   if (!best) {
-    return 1;
+    return;
   }
 #ifdef ZSTD_PTHREAD
-  if (pthread_mutex_init(&best->mutex, NULL)) {
-    return 1;
-  }
-  if (pthread_cond_init(&best->cond, NULL)) {
-    return 1;
-  }
+  pthread_mutex_init(&best->mutex, NULL);
+  pthread_cond_init(&best->cond, NULL);
   best->liveJobs = 0;
 #endif
   best->dict = NULL;
   best->dictSize = 0;
   best->compressedSize = (size_t)-1;
   memset(&best->parameters, 0, sizeof(best->parameters));
-  return 0;
 }
 
 /**
  * Wait until liveJobs == 0.
  */
-static int COVER_best_wait(COVER_best_t *best) {
-  int rc = 0;
+static void COVER_best_wait(COVER_best_t *best) {
   if (!best) {
-    return 1;
+    return;
   }
 #ifdef ZSTD_PTHREAD
-  rc |= pthread_mutex_lock(&best->mutex);
+  pthread_mutex_lock(&best->mutex);
   while (best->liveJobs != 0 && rc == 0) {
-    rc |= pthread_cond_wait(&best->cond, &best->mutex);
+    pthread_cond_wait(&best->cond, &best->mutex);
   }
-  rc |= pthread_mutex_unlock(&best->mutex);
+  pthread_mutex_unlock(&best->mutex);
 #endif
-  return rc;
 }
 
 /**
  * Call COVER_best_wait() and then destroy the COVER_best_t.
  */
-static int COVER_best_destroy(COVER_best_t *best) {
-  int rc = 0;
+static void COVER_best_destroy(COVER_best_t *best) {
   if (!best) {
-    return 0;
+    return;
   }
-  rc |= COVER_best_wait(best);
+  COVER_best_wait(best);
   if (best->dict) {
     free(best->dict);
   }
 #ifdef ZSTD_PTHREAD
-  rc |= pthread_mutex_destroy(&best->mutex);
-  rc |= pthread_cond_destroy(&best->cond);
+  pthread_mutex_destroy(&best->mutex);
+  pthread_cond_destroy(&best->cond);
 #endif
-  return rc;
 }
 
 /**
  * Called when a thread is about to be launched.
  * Increments liveJobs.
  */
-static int COVER_best_start(COVER_best_t *best) {
-  int rc = 0;
+static void COVER_best_start(COVER_best_t *best) {
   if (!best) {
-    return 1;
+    return;
   }
 #ifdef ZSTD_PTHREAD
-  rc |= pthread_mutex_lock(&best->mutex);
+  pthread_mutex_lock(&best->mutex);
   ++best->liveJobs;
-  rc |= pthread_mutex_unlock(&best->mutex);
+  pthread_mutex_unlock(&best->mutex);
 #endif
-  return rc;
 }
 
 /**
@@ -778,17 +767,16 @@ static int COVER_best_start(COVER_best_t *best) {
  * Decrements liveJobs and signals any waiting threads if liveJobs == 0.
  * If this dictionary is the best so far save it and its parameters.
  */
-static int COVER_best_finish(COVER_best_t *best, size_t compressedSize,
+static void COVER_best_finish(COVER_best_t *best, size_t compressedSize,
                              COVER_params_t parameters, void *dict,
                              size_t dictSize) {
-  int rc = 0;
   if (!best) {
-    return 1;
+    return;
   }
   {
 #ifdef ZSTD_PTHREAD
     size_t liveJobs;
-    rc |= pthread_mutex_lock(&best->mutex);
+    pthread_mutex_lock(&best->mutex);
     --best->liveJobs;
     liveJobs = best->liveJobs;
 #endif
@@ -805,13 +793,12 @@ static int COVER_best_finish(COVER_best_t *best, size_t compressedSize,
       best->compressedSize = compressedSize;
     }
 #ifdef ZSTD_PTHREAD
-    rc |= pthread_mutex_unlock(&best->mutex);
+    pthread_mutex_unlock(&best->mutex);
     if (liveJobs == 0) {
       pthread_cond_broadcast(&best->cond);
     }
 #endif
   }
-  return rc;
 }
 
 typedef struct COVER_tryParameters_data_s {
@@ -932,9 +919,7 @@ ZDICTLIB_API size_t COVER_optimizeTrainFromBuffer(void *dictBuffer,
   /* Local variables */
   unsigned d;
   COVER_best_t best;
-  if (COVER_best_init(&best)) {
-    return ERROR(GENERIC);
-  }
+  COVER_best_init(&best);
   g_displayLevel = parameters->notificationLevel;
   /* Loop through d first because each new value needs a new context */
   for (d = dMin; d <= dMax; d += 2) {
