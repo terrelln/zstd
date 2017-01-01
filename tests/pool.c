@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+#define PC(call) do { call } while (0)
+#else
+#define PC(call) do { if (call) exit(1); } while (0)
+#endif
+
 #define ASSERT_TRUE(p)                                                         \
   do {                                                                         \
     if (!(p)) {                                                                \
@@ -21,14 +27,10 @@ struct data {
 
 void fn(void *opaque) {
   struct data *data = (struct data *)opaque;
-  if (pthread_mutex_lock(&data->mutex)) {
-    exit(2);
-  }
+  PC(pthread_mutex_lock(&data->mutex));
   data->data[data->i] = data->i;
   ++data->i;
-  if (pthread_mutex_unlock(&data->mutex)) {
-    exit(3);
-  }
+  PC(pthread_mutex_unlock(&data->mutex));
 }
 
 int testOrder(size_t numThreads, size_t queueLog) {
@@ -36,9 +38,7 @@ int testOrder(size_t numThreads, size_t queueLog) {
   POOL_ctx *ctx = POOL_create(numThreads, queueLog);
   ASSERT_TRUE(ctx);
   data.i = 0;
-  if (pthread_mutex_init(&data.mutex, NULL)) {
-    exit(4);
-  }
+  PC(pthread_mutex_init(&data.mutex, NULL));
   {
     size_t i;
     for (i = 0; i < 128; ++i) {
@@ -53,9 +53,7 @@ int testOrder(size_t numThreads, size_t queueLog) {
       ASSERT_EQ(i, data.data[i]);
     }
   }
-  if (pthread_mutex_destroy(&data.mutex)) {
-    exit(5);
-  }
+  PC(pthread_mutex_destroy(&data.mutex));
   return 0;
 }
 
