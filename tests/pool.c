@@ -21,7 +21,7 @@
 
 struct data {
   pthread_mutex_t mutex;
-  unsigned data[128];
+  unsigned data[16];
   size_t i;
 };
 
@@ -41,12 +41,12 @@ int testOrder(size_t numThreads, size_t queueLog) {
   PC(pthread_mutex_init(&data.mutex, NULL));
   {
     size_t i;
-    for (i = 0; i < 128; ++i) {
+    for (i = 0; i < 16; ++i) {
       POOL_add(ctx, &fn, &data);
     }
   }
   POOL_free(ctx);
-  ASSERT_EQ(128, data.i);
+  ASSERT_EQ(16, data.i);
   {
     size_t i;
     for (i = 0; i < data.i; ++i) {
