@@ -215,7 +215,7 @@ static int basicUnitTests(U32 seed, double compressibility)
                                            CNBuffer, dictSize),
                   if (r != CNBuffSize - dictSize) goto _output_error);
         DISPLAYLEVEL(4, "OK \n");
-
+        
         DISPLAYLEVEL(4, "test%3i : check content size on duplicated context : ", testNb++);
         {   size_t const testSize = CNBuffSize / 3;
             {   ZSTD_parameters p = ZSTD_getParams(2, testSize, dictSize);
@@ -311,6 +311,16 @@ static int basicUnitTests(U32 seed, double compressibility)
                                        dictBuffer, dictSize),
                   if (r != CNBuffSize) goto _output_error);
         DISPLAYLEVEL(4, "OK \n");
+
+        DISPLAYLEVEL(4, "test%3i : check invalid dictionary : ", testNb++);
+        {   size_t const err = ZSTD_decompress_usingDict(dctx,
+                                                 decodedBuffer, CNBuffSize,
+                                                 compressedBuffer, cSize,
+                                                 dictBuffer, MIN(9, dictSize));
+            if (ZSTD_getErrorCode(err) != ZSTD_error_dictionary_corrupted) goto _output_error;
+        }
+        DISPLAYLEVEL(4, "OK \n");
+
 
         ZSTD_freeCCtx(cctx);
         ZSTD_freeDCtx(dctx);
