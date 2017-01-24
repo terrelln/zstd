@@ -56,6 +56,7 @@
 /* **************************************************************
 *  Includes
 ****************************************************************/
+#include <math.h>       /* log2 */
 #include <stdlib.h>     /* malloc, free, qsort */
 #include <string.h>     /* memcpy, memset */
 #include <stdio.h>      /* printf (debug) */
@@ -444,6 +445,33 @@ size_t FSE_count(unsigned* count, unsigned* maxSymbolValuePtr,
 {
     unsigned tmpCounters[1024];
     return FSE_count_wksp(count, maxSymbolValuePtr, src, srcSize, tmpCounters);
+}
+
+size_t FSE_entropyBound(unsigned* count, unsigned maxSymbolValue)
+{
+    size_t nbBits = 0;
+    size_t total = 0;
+    unsigned s;
+    for (s = 0; s <= maxSymbolValue; ++s) {
+      total += count[s];
+    }
+    {
+      double entropy = 0;
+      for (s = 0; s <= maxSymbolValue; ++s) {
+        if (count[s] == 0) {
+          continue;
+        }
+        double const p = (double)count[s] / total;
+        entropy += p * log2(1 / p);
+      }
+      nbBits += (size_t)(entropy * total);
+    }
+    return nbBits >> 3;
+}
+
+size_t FSE_estimateNCountSize(const short* normalizedCounter, unsigned maxSymbolValue, unsigned tableLog) {
+  BYTE dst[FSE_NCOUNTBOUND];
+  return FSE_writeNCount(dst, FSE_NCOUNTBOUND, normalizedCounter, maxSymbolValue, tableLog);
 }
 
 

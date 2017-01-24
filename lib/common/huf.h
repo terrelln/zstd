@@ -169,6 +169,19 @@ size_t HUF_writeCTable (void* dst, size_t maxDstSize, const HUF_CElt* CTable, un
 size_t HUF_compress4X_usingCTable(void* dst, size_t dstSize, const void* src, size_t srcSize, const HUF_CElt* CTable);
 
 
+/** HUF_estimateCTableSize() :
+ *  Returns the estimated number of bytes to write the Huffman CTable.
+ */
+size_t HUF_estimateCTableSize(HUF_CElt* CTable, unsigned maxSymbolValue, unsigned huffLog, unsigned singleStream);
+/** HUF_guessCTableSize() :
+ *  Returns a guess to the size of the CTable. Faster than estimate but less accurate.
+ */
+size_t HUF_guessCTableSize(unsigned singleStream);
+/** HUF_estimateCompressedSize() :
+ *  Returns the estimated number of bytes to huffman compress the data.
+ */
+size_t HUF_estimateCompressedSize(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue);
+
 /** HUF_buildCTable_wksp() :
  *  Same as HUF_buildCTable(), but using externally allocated scratch buffer.
  *  `workSpace` must be aligned on 4-bytes boundaries, and be at least as large as a table of 1024 unsigned.
