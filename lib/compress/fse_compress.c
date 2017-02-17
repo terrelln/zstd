@@ -446,6 +446,7 @@ size_t FSE_count(unsigned* count, unsigned* maxSymbolValuePtr,
 }
 
 static double FSE_log2(unsigned x) {
+  if (x == 0) return 0.0;
   /* TODO: Table lookup for small values */
   return log2(x);
 }

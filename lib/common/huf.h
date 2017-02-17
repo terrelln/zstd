@@ -172,7 +172,7 @@ size_t HUF_compress4X_usingCTable(void* dst, size_t dstSize, const void* src, si
 /** HUF_estimateCTableSize() :
  *  Returns the estimated number of bytes to write the Huffman CTable.
  */
-size_t HUF_estimateCTableSize(HUF_CElt* CTable, unsigned maxSymbolValue, unsigned huffLog, unsigned singleStream);
+size_t HUF_estimateCTableSize(HUF_CElt* CTable, unsigned maxSymbolValue, unsigned huffLog);
 /** HUF_guessCTableSize() :
  *  Returns a guess to the size of the CTable. Faster than estimate but less accurate.
  */

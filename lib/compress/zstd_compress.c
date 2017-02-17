@@ -477,6 +477,51 @@ static size_t ZSTD_compressRleLiteralsBlock (void* dst, size_t dstCapacity, cons
 
 static size_t ZSTD_minGain(size_t srcSize) { return (srcSize >> 6) + 2; }
 
+#include <stdio.h>
+#include <stdlib.h>
+static int ZSTD_useDictionaryTables(HUF_CElt* CTable, const void* src, size_t srcSize, U32 singleStream) {
+    if (srcSize < 63) return 1;
+    unsigned count[FSE_MAX_SYMBOL_VALUE+1];
+    unsigned maxSymbolValue = 255;
+    unsigned huffLog = 11;
+    size_t const countErr = FSE_count(count, &maxSymbolValue, src, srcSize);
+    if (ZSTD_isError(countErr)) {
+      fprintf(stderr, "fse err %s\n", ZSTD_getErrorName(countErr));
+      return 1;
+    }
+    huffLog = HUF_optimalTableLog(huffLog, srcSize, maxSymbolValue);
+    unsigned hufTable[256];
+    size_t const maxBits = HUF_buildCTable((HUF_CElt*)hufTable, count, maxSymbolValue, huffLog);
+    if (ZSTD_isError(maxBits)) {
+      fprintf(stderr, "error\n");
+      return 1;
+    }
+    huffLog = maxBits;
+
+    size_t const CTableSize = HUF_estimateCTableSize((HUF_CElt*)hufTable, maxSymbolValue, huffLog);
+    if (ZSTD_isError(CTableSize)) {
+      fprintf(stderr, "HUF error\n");
+      return 1;
+    }
+    if (CTableSize + 12 >= srcSize) { return 1; }
+    size_t const compressedSize = HUF_estimateCompressedSize((HUF_CElt*)hufTable, count, maxSymbolValue);
+    if (ZSTD_isError(compressedSize)) {
+      fprintf(stderr, "HUF2 error\n");
+      return 1;
+    }
+    size_t const dictionarySize = HUF_estimateCompressedSize(CTable, count, maxSymbolValue);
+    if (ZSTD_isError(dictionarySize)) {
+      fprintf(stderr, "HUF3 error\n");
+      return 1;
+    }
+    if (dictionarySize < (singleStream ? 0 : 6) + CTableSize + compressedSize) {
+      return 1;
+    } else {
+      fprintf(stderr, "(dictionary < entropy) %zu < %zu?\n", dictionarySize, (singleStream ? 0 : 6) + CTableSize + compressedSize);
+      return 0;
+    }
+}
+
 static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
                                      void* dst, size_t dstCapacity,
                                const void* src, size_t srcSize)
@@ -496,7 +541,7 @@ static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
     }
 
     if (dstCapacity < lhSize+1) return ERROR(dstSize_tooSmall);   /* not enough space for compression */
-    if (zc->flagStaticTables && (lhSize==3)) {
+    if (zc->flagStaticTables && (lhSize==3) && ZSTD_useDictionaryTables(zc->hufTable, src, srcSize, singleStream)) {
         hType = set_repeat;
         singleStream = 1;
         cLitSize = HUF_compress1X_usingCTable(ostart+lhSize, dstCapacity-lhSize, src, srcSize, zc->hufTable);
