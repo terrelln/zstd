@@ -409,6 +409,29 @@ size_t HUF_buildCTable (HUF_CElt* tree, const U32* count, U32 maxSymbolValue, U3
     return HUF_buildCTable_wksp(tree, count, maxSymbolValue, maxNbBits, nodeTable, sizeof(nodeTable));
 }
 
+size_t HUF_estimateCTableSize(HUF_CElt* CTable, unsigned maxSymbolValue, unsigned huffLog, unsigned singleStream)
+{
+    BYTE dst[HUF_CTABLEBOUND];
+    return (singleStream ? 0 : 6) + HUF_writeCTable(dst, HUF_CTABLEBOUND, CTable, maxSymbolValue, huffLog);
+}
+
+size_t HUF_guessCTableSize(unsigned singleStream) {
+  return (singleStream ? 0 : 6) + 2 * HUF_CTABLEBOUND / 3;
+}
+
+size_t HUF_estimateCompressedSize(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue)
+{
+    size_t nbBits = 0;
+    unsigned s;
+    for (s = 0; s <= maxSymbolValue; ++s) {
+        if (CTable[s].nbBits == 0) {
+            return ERROR(GENERIC);
+        }
+        nbBits += CTable[s].nbBits * count[s];
+    }
+    return nbBits >> 3;
+}
+
 static void HUF_encodeSymbol(BIT_CStream_t* bitCPtr, U32 symbol, const HUF_CElt* CTable)
 {
     BIT_addBitsFast(bitCPtr, CTable[symbol].val, CTable[symbol].nbBits);

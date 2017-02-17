@@ -56,6 +56,7 @@
 /* **************************************************************
 *  Includes
 ****************************************************************/
+#include <math.h>       /* log2 */
 #include <stdlib.h>     /* malloc, free, qsort */
 #include <string.h>     /* memcpy, memset */
 #include <stdio.h>      /* printf (debug) */
@@ -442,6 +443,36 @@ size_t FSE_count(unsigned* count, unsigned* maxSymbolValuePtr,
 {
     unsigned tmpCounters[1024];
     return FSE_count_wksp(count, maxSymbolValuePtr, src, srcSize, tmpCounters);
+}
+
+static double FSE_log2(unsigned x) {
+  /* TODO: Table lookup for small values */
+  return log2(x);
+}
+
+size_t FSE_entropyBound(unsigned* count, unsigned maxSymbolValue)
+{
+    size_t total = 0;
+    double entropy = 0;
+    /* Let C_i = #occurrences of sybol i.
+     * Let N = sum[C_i].
+     * Then the entropy lower bound can be expressed as
+     *   -N * sum[C_i / N * log_2(C_i / N)]
+     * = -sum[C_i * (log_2(C_i) - log_2(N))]
+     * = -sum[C_i * log_2(C_i)] + N * log_2(N).
+     */
+    size_t s = 0;
+    for (s = 0; s <= maxSymbolValue; ++s) {
+      total += count[s];
+      entropy -= count[s] * FSE_log2(count[s]);
+    }
+    entropy += total * FSE_log2(total);
+    return (size_t)entropy >> 3;
+}
+
+size_t FSE_estimateNCountSize(const short* normalizedCounter, unsigned maxSymbolValue, unsigned tableLog) {
+  BYTE dst[FSE_NCOUNTBOUND];
+  return FSE_writeNCount(dst, FSE_NCOUNTBOUND, normalizedCounter, maxSymbolValue, tableLog);
 }
 
 
