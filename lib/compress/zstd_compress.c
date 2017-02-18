@@ -541,13 +541,17 @@ static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
     }
 
     if (dstCapacity < lhSize+1) return ERROR(dstSize_tooSmall);   /* not enough space for compression */
-    if (zc->flagStaticTables && (lhSize==3) && ZSTD_useDictionaryTables(zc->hufTable, src, srcSize, singleStream)) {
+    if (zc->flagStaticTables && (lhSize==3) /* && ZSTD_useDictionaryTables(zc->hufTable, src, srcSize, singleStream) */) {
         hType = set_repeat;
         singleStream = 1;
         cLitSize = HUF_compress1X_usingCTable(ostart+lhSize, dstCapacity-lhSize, src, srcSize, zc->hufTable);
     } else {
-        cLitSize = singleStream ? HUF_compress1X_wksp(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters))
-                                : HUF_compress4X_wksp(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters));
+        HUF_CElt* hufTable = zc->flagStaticTables ? zc->hufTable : NULL;
+        cLitSize = singleStream ? HUF_compress1X_wksp(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), &hufTable)
+                                : HUF_compress4X_wksp(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), &hufTable);
+        if (hufTable) {
+          hType = set_repeat;
+        }
     }
 
     if ((cLitSize==0) | (cLitSize >= srcSize - minGain))
