@@ -80,6 +80,7 @@ struct ZSTD_CCtx_s {
     U32* chainTable;
     HUF_CElt* hufTable;
     U32 flagStaticTables;
+    U32 flagStaticHufTable;
     FSE_CTable offcodeCTable  [FSE_CTABLE_SIZE_U32(OffFSELog, MaxOff)];
     FSE_CTable matchlengthCTable[FSE_CTABLE_SIZE_U32(MLFSELog, MaxML)];
     FSE_CTable litlengthCTable  [FSE_CTABLE_SIZE_U32(LLFSELog, MaxLL)];
@@ -287,6 +288,7 @@ static size_t ZSTD_resetCCtx_advanced (ZSTD_CCtx* zc,
         ptr = zc->hashTable3 + h3Size;
         zc->hufTable = (HUF_CElt*)ptr;
         zc->flagStaticTables = 0;
+        zc->flagStaticHufTable = 0;
         ptr = ((U32*)ptr) + 256;  /* note : HUF_CElt* is incomplete type, size is simulated using U32 */
 
         zc->nextToUpdate = 1;
@@ -372,11 +374,14 @@ size_t ZSTD_copyCCtx(ZSTD_CCtx* dstCCtx, const ZSTD_CCtx* srcCCtx, unsigned long
 
     /* copy entropy tables */
     dstCCtx->flagStaticTables = srcCCtx->flagStaticTables;
+    dstCCtx->flagStaticHufTable = srcCCtx->flagStaticHufTable;
     if (srcCCtx->flagStaticTables) {
-        memcpy(dstCCtx->hufTable, srcCCtx->hufTable, 256*4);
         memcpy(dstCCtx->litlengthCTable, srcCCtx->litlengthCTable, sizeof(dstCCtx->litlengthCTable));
         memcpy(dstCCtx->matchlengthCTable, srcCCtx->matchlengthCTable, sizeof(dstCCtx->matchlengthCTable));
         memcpy(dstCCtx->offcodeCTable, srcCCtx->offcodeCTable, sizeof(dstCCtx->offcodeCTable));
+    }
+    if (srcCCtx->flagStaticHufTable) {
+        memcpy(dstCCtx->hufTable, srcCCtx->hufTable, 256*4);
     }
 
     return 0;
@@ -477,50 +482,6 @@ static size_t ZSTD_compressRleLiteralsBlock (void* dst, size_t dstCapacity, cons
 
 static size_t ZSTD_minGain(size_t srcSize) { return (srcSize >> 6) + 2; }
 
-#include <stdio.h>
-#include <stdlib.h>
-static int ZSTD_useDictionaryTables(HUF_CElt* CTable, const void* src, size_t srcSize, U32 singleStream) {
-    if (srcSize < 63) return 1;
-    unsigned count[FSE_MAX_SYMBOL_VALUE+1];
-    unsigned maxSymbolValue = 255;
-    unsigned huffLog = 11;
-    size_t const countErr = FSE_count(count, &maxSymbolValue, src, srcSize);
-    if (ZSTD_isError(countErr)) {
-      fprintf(stderr, "fse err %s\n", ZSTD_getErrorName(countErr));
-      return 1;
-    }
-    huffLog = HUF_optimalTableLog(huffLog, srcSize, maxSymbolValue);
-    unsigned hufTable[256];
-    size_t const maxBits = HUF_buildCTable((HUF_CElt*)hufTable, count, maxSymbolValue, huffLog);
-    if (ZSTD_isError(maxBits)) {
-      fprintf(stderr, "error\n");
-      return 1;
-    }
-    huffLog = maxBits;
-
-    size_t const CTableSize = HUF_estimateCTableSize((HUF_CElt*)hufTable, maxSymbolValue, huffLog);
-    if (ZSTD_isError(CTableSize)) {
-      fprintf(stderr, "HUF error\n");
-      return 1;
-    }
-    if (CTableSize + 12 >= srcSize) { return 1; }
-    size_t const compressedSize = HUF_estimateCompressedSize((HUF_CElt*)hufTable, count, maxSymbolValue);
-    if (ZSTD_isError(compressedSize)) {
-      fprintf(stderr, "HUF2 error\n");
-      return 1;
-    }
-    size_t const dictionarySize = HUF_estimateCompressedSize(CTable, count, maxSymbolValue);
-    if (ZSTD_isError(dictionarySize)) {
-      fprintf(stderr, "HUF3 error\n");
-      return 1;
-    }
-    if (dictionarySize < (singleStream ? 0 : 6) + CTableSize + compressedSize) {
-      return 1;
-    } else {
-      fprintf(stderr, "(dictionary < entropy) %zu < %zu?\n", dictionarySize, (singleStream ? 0 : 6) + CTableSize + compressedSize);
-      return 0;
-    }
-}
 
 static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
                                      void* dst, size_t dstCapacity,
@@ -536,22 +497,18 @@ static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
 
     /* small ? don't even attempt compression (speed opt) */
 #   define LITERAL_NOENTROPY 63
-    {   size_t const minLitSize = zc->flagStaticTables ? 6 : LITERAL_NOENTROPY;
+    {   size_t const minLitSize = zc->flagStaticHufTable ? 6 : LITERAL_NOENTROPY;
         if (srcSize <= minLitSize) return ZSTD_noCompressLiterals(dst, dstCapacity, src, srcSize);
     }
 
     if (dstCapacity < lhSize+1) return ERROR(dstSize_tooSmall);   /* not enough space for compression */
-    if (zc->flagStaticTables && (lhSize==3) /* && ZSTD_useDictionaryTables(zc->hufTable, src, srcSize, singleStream) */) {
-        hType = set_repeat;
-        singleStream = 1;
-        cLitSize = HUF_compress1X_usingCTable(ostart+lhSize, dstCapacity-lhSize, src, srcSize, zc->hufTable);
-    } else {
-        HUF_CElt* hufTable = zc->flagStaticTables ? zc->hufTable : NULL;
+    {   HUF_CElt* hufTable = zc->flagStaticHufTable ? zc->hufTable : NULL;
         cLitSize = singleStream ? HUF_compress1X_wksp(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), &hufTable)
                                 : HUF_compress4X_wksp(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), &hufTable);
         if (hufTable) {
           hType = set_repeat;
         }
+        if (cLitSize > 1) zc->flagStaticHufTable = 1;
     }
 
     if ((cLitSize==0) | (cLitSize >= srcSize - minGain))
@@ -2653,6 +2610,7 @@ static size_t ZSTD_loadDictEntropyStats(ZSTD_CCtx* cctx, const void* dict, size_
     }
 
     cctx->flagStaticTables = 1;
+    cctx->flagStaticHufTable = 1;
     return dictPtr - (const BYTE*)dict;
 }
 

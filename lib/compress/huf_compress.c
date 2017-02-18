@@ -424,6 +424,9 @@ size_t HUF_estimateCompressedSize(HUF_CElt* CTable, const unsigned* count, unsig
     size_t nbBits = 0;
     unsigned s;
     for (s = 0; s <= maxSymbolValue; ++s) {
+        if (CTable[s].nbBits == 0 && count[s] != 0) {
+          return ERROR(GENERIC);
+        }
         nbBits += CTable[s].nbBits * count[s];
     }
     return nbBits >> 3;
@@ -570,20 +573,16 @@ static size_t HUF_compress_internal (
 
     /* Write table description header */
     {   CHECK_V_F(hSize, HUF_writeCTable (op, dstSize, table.CTable, maxSymbolValue, huffLog) );
-        if (hSize + 12 >= srcSize) return 0;   /* not useful to try compression */
-        op += hSize;
-    }
-
-    /* Check the old table */
-    if (oldHufTable && *oldHufTable) {
-        size_t const oldSize = HUF_estimateCompressedSize(*oldHufTable, table.count, maxSymbolValue);
+        /* Check the old table if it exists */
+        size_t const oldSize = oldHufTable && *oldHufTable ? HUF_estimateCompressedSize(*oldHufTable, table.count, maxSymbolValue) : -1;
         size_t const newSize = HUF_estimateCompressedSize(table.CTable, table.count, maxSymbolValue);
-        /* Use the old table */
-        if (oldSize < newSize + (op - ostart)) {
-            op = ostart;
+        /* Use the old table if it is beneficial */
+        if (!HUF_isError(oldSize) && (oldSize < newSize + hSize || hSize + 12 >= srcSize)) {
             memcpy(table.CTable, *oldHufTable, sizeof(table.CTable));
         } else {
-            /* Tell the caller we didn't use the old table */
+            op += hSize;
+            /* Tell the caller we didn't use the old table, and update their table */
+            memcpy(*oldHufTable, table.CTable, sizeof(table.CTable));
             *oldHufTable = NULL;
         }
     }
