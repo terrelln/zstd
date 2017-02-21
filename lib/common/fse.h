@@ -179,11 +179,6 @@ FSE_PUBLIC_API size_t FSE_NCountWriteBound(unsigned maxSymbolValue, unsigned tab
               or an errorCode, which can be tested using FSE_isError(). */
 FSE_PUBLIC_API size_t FSE_writeNCount (void* buffer, size_t bufferSize, const short* normalizedCounter, unsigned maxSymbolValue, unsigned tableLog);
 
-/*! FSE_entropyBound() :
-    Returns the the entropy lower bound on number of bytes required to encode symbols with the given frequencies.
-*/
-size_t FSE_entropyBound(unsigned* count, unsigned maxSymbolValue);
-
 /*! FSE_estimateNCountSize() :
     Returns the estimated size of an FSE normalized table */
 size_t FSE_estimateNCountSize(const short* normalizedCounter, unsigned maxSymbolValue, unsigned tableLog);
