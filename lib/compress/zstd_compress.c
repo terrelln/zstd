@@ -486,7 +486,6 @@ static size_t ZSTD_compressRleLiteralsBlock (void* dst, size_t dstCapacity, cons
 static size_t ZSTD_minGain(size_t srcSize) { return (srcSize >> 6) + 2; }
 
 
-#include <stdio.h>
 static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
                                      void* dst, size_t dstCapacity,
                                const void* src, size_t srcSize)
