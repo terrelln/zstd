@@ -56,7 +56,6 @@
 /* **************************************************************
 *  Includes
 ****************************************************************/
-#include <math.h>       /* log2 */
 #include <stdlib.h>     /* malloc, free, qsort */
 #include <string.h>     /* memcpy, memset */
 #include <stdio.h>      /* printf (debug) */
