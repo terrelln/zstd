@@ -62,6 +62,7 @@ struct ZSTD_CCtx_s {
     U32   hashLog3;         /* dispatch table : larger == faster, more memory */
     U32   loadedDictEnd;    /* index of end of dictionary */
     U32   forceWindow;      /* force back-references to respect limit of 1<<wLog, even for dictionary */
+    U32   forceRawDict;     /* Force loading dictionary in "content-only" mode (no header analysis) */
     ZSTD_compressionStage_e stage;
     U32   rep[ZSTD_REP_NUM];
     U32   repToConfirm[ZSTD_REP_NUM];
@@ -125,6 +126,7 @@ size_t ZSTD_setCCtxParameter(ZSTD_CCtx* cctx, ZSTD_CCtxParameter param, unsigned
     switch(param)
     {
     case ZSTD_p_forceWindow : cctx->forceWindow = value>0; cctx->loadedDictEnd = 0; return 0;
+    case ZSTD_p_forceRawDict : cctx->forceRawDict = value>0; return 0;
     default: return ERROR(parameter_unknown);
     }
 }
@@ -247,7 +249,7 @@ static size_t ZSTD_continueCCtx(ZSTD_CCtx* cctx, ZSTD_parameters params, U64 fra
 typedef enum { ZSTDcrp_continue, ZSTDcrp_noMemset, ZSTDcrp_fullReset } ZSTD_compResetPolicy_e;
 
 /*! ZSTD_resetCCtx_advanced() :
-    note : 'params' must be validated */
+    note : @params must be validated */
 static size_t ZSTD_resetCCtx_advanced (ZSTD_CCtx* zc,
                                        ZSTD_parameters params, U64 frameContentSize,
                                        ZSTD_compResetPolicy_e const crp)
@@ -2627,8 +2629,9 @@ static size_t ZSTD_compress_insertDictionary(ZSTD_CCtx* zc, const void* dict, si
 {
     if ((dict==NULL) || (dictSize<=8)) return 0;
 
-    /* default : dict is pure content */
-    if (MEM_readLE32(dict) != ZSTD_DICT_MAGIC) return ZSTD_loadDictionaryContent(zc, dict, dictSize);
+    /* dict as pure content */
+    if ((MEM_readLE32(dict) != ZSTD_DICT_MAGIC) || (zc->forceRawDict))
+        return ZSTD_loadDictionaryContent(zc, dict, dictSize);
     zc->dictID = zc->params.fParams.noDictIDFlag ? 0 :  MEM_readLE32((const char*)dict+4);
 
     /* known magic number : dict is parsed for entropy stats and content */
@@ -2800,7 +2803,7 @@ ZSTD_CDict* ZSTD_createCDict_advanced(const void* dictBuffer, size_t dictSize, u
 
         if (!cdict || !cctx) {
             ZSTD_free(cdict, customMem);
-            ZSTD_free(cctx, customMem);
+            ZSTD_freeCCtx(cctx);
             return NULL;
         }
 
@@ -2818,8 +2821,8 @@ ZSTD_CDict* ZSTD_createCDict_advanced(const void* dictBuffer, size_t dictSize, u
         {   size_t const errorCode = ZSTD_compressBegin_advanced(cctx, cdict->dictContent, dictSize, params, 0);
             if (ZSTD_isError(errorCode)) {
                 ZSTD_free(cdict->dictBuffer, customMem);
-                ZSTD_free(cctx, customMem);
                 ZSTD_free(cdict, customMem);
+                ZSTD_freeCCtx(cctx);
                 return NULL;
         }   }
 

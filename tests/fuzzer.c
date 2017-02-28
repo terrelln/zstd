@@ -256,6 +256,14 @@ static int basicUnitTests(U32 seed, double compressibility)
                   if (r != CNBuffSize - dictSize) goto _output_error);
         DISPLAYLEVEL(4, "OK \n");
 
+        DISPLAYLEVEL(4, "test%3i : decompress with DDict : ", testNb++);
+        {   ZSTD_DDict* const ddict = ZSTD_createDDict_byReference(CNBuffer, dictSize);
+            size_t const r = ZSTD_decompress_usingDDict(dctx, decodedBuffer, CNBuffSize, compressedBuffer, cSize, ddict);
+            if (r != CNBuffSize - dictSize) goto _output_error;
+            DISPLAYLEVEL(4, "OK (size of DDict : %u) \n", (U32)ZSTD_sizeof_DDict(ddict));
+            ZSTD_freeDDict(ddict);
+        }
+
         DISPLAYLEVEL(4, "test%3i : check content size on duplicated context : ", testNb++);
         {   size_t const testSize = CNBuffSize / 3;
             {   ZSTD_parameters p = ZSTD_getParams(2, testSize, dictSize);
@@ -543,6 +551,13 @@ static int basicUnitTests(U32 seed, double compressibility)
     DISPLAYLEVEL(4, "test%3i : decompress lots 3-bytes sequence : ", testNb++);
     { CHECK_V(r, ZSTD_decompress(decodedBuffer, _3BYTESTESTLENGTH, compressedBuffer, cSize) );
       if (r != _3BYTESTESTLENGTH) goto _output_error; }
+    DISPLAYLEVEL(4, "OK \n");
+
+    /* findFrameCompressedSize on skippable frames */
+    DISPLAYLEVEL(4, "test%3i : frame compressed size of skippable frame : ", testNb++);
+    {   const char* frame = "\x50\x2a\x4d\x18\x05\x0\x0\0abcde";
+        size_t const frameSrcSize = 13;
+        if (ZSTD_findFrameCompressedSize(frame, frameSrcSize) != frameSrcSize) goto _output_error; }
     DISPLAYLEVEL(4, "OK \n");
 
     /* error string tests */

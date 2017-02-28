@@ -26,8 +26,7 @@ endif
 default: lib zstd-release
 
 .PHONY: all
-all: allmost
-	CPPFLAGS=-I../lib LDFLAGS=-L../lib $(MAKE) -C examples/ $@
+all: | allmost examples manual
 
 .PHONY: allmost
 allmost:
@@ -68,6 +67,14 @@ zlibwrapper:
 test:
 	$(MAKE) -C $(TESTDIR) $@
 
+.PHONY: examples
+examples:
+	CPPFLAGS=-I../lib LDFLAGS=-L../lib $(MAKE) -C examples/ all
+
+.PHONY: manual
+manual:
+	$(MAKE) -C contrib/gen_html $@
+
 .PHONY: clean
 clean:
 	@$(MAKE) -C $(ZSTDDIR) $@ > $(VOID)
@@ -75,6 +82,7 @@ clean:
 	@$(MAKE) -C $(TESTDIR) $@ > $(VOID)
 	@$(MAKE) -C $(ZWRAPDIR) $@ > $(VOID)
 	@$(MAKE) -C examples/ $@ > $(VOID)
+	@$(MAKE) -C contrib/gen_html $@ > $(VOID)
 	@$(RM) zstd$(EXT) zstdmt$(EXT) tmp*
 	@echo Cleaning completed
 
@@ -128,6 +136,12 @@ ppc64test: clean
 	$(MAKE) -C $(TESTDIR) datagen   # use native, faster
 	$(MAKE) -C $(TESTDIR) test CC=powerpc-linux-gnu-gcc QEMU_SYS=qemu-ppc64-static ZSTDRTTEST= MOREFLAGS="-m64 -static"
 
+arm-ppc-compilation:
+	$(MAKE) -C $(PRGDIR) clean zstd CC=arm-linux-gnueabi-gcc QEMU_SYS=qemu-arm-static ZSTDRTTEST= MOREFLAGS="-Werror -static"
+	$(MAKE) -C $(PRGDIR) clean zstd CC=aarch64-linux-gnu-gcc QEMU_SYS=qemu-aarch64-static ZSTDRTTEST= MOREFLAGS="-Werror -static"
+	$(MAKE) -C $(PRGDIR) clean zstd CC=powerpc-linux-gnu-gcc QEMU_SYS=qemu-ppc-static ZSTDRTTEST= MOREFLAGS="-Werror -Wno-attributes -static"
+	$(MAKE) -C $(PRGDIR) clean zstd CC=powerpc-linux-gnu-gcc QEMU_SYS=qemu-ppc64-static ZSTDRTTEST= MOREFLAGS="-m64 -static"
+
 usan: clean
 	$(MAKE) test CC=clang MOREFLAGS="-g -fsanitize=undefined"
 
@@ -142,6 +156,34 @@ asan32: clean
 
 uasan: clean
 	$(MAKE) test CC=clang MOREFLAGS="-g -fsanitize=address -fsanitize=undefined"
+
+uasan-%: clean
+	LDFLAGS=-fuse-ld=gold CFLAGS="-Og -fsanitize=address -fsanitize=undefined" $(MAKE) -C $(TESTDIR) $*
+
+apt-install:
+	sudo apt-get -yq --no-install-suggests --no-install-recommends --force-yes install $(APT_PACKAGES)
+
+apt-add-repo:
+	sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+	sudo apt-get update -y -qq
+
+ppcinstall:
+	APT_PACKAGES="qemu-system-ppc qemu-user-static gcc-powerpc-linux-gnu" $(MAKE) apt-install
+
+arminstall:
+	APT_PACKAGES="qemu-system-arm qemu-user-static gcc-powerpc-linux-gnu gcc-arm-linux-gnueabi libc6-dev-armel-cross gcc-aarch64-linux-gnu libc6-dev-arm64-cross" $(MAKE) apt-install
+
+valgrindinstall: 
+	APT_PACKAGES="valgrind" $(MAKE) apt-install
+
+libc6install:
+	APT_PACKAGES="libc6-dev-i386 gcc-multilib" $(MAKE) apt-install
+
+gcc6install: apt-add-repo
+	APT_PACKAGES="libc6-dev-i386 gcc-multilib gcc-6 gcc-6-multilib" $(MAKE) apt-install
+
+gpp6install: apt-add-repo
+	APT_PACKAGES="libc6-dev-i386 g++-multilib gcc-6 g++-6 g++-6-multilib" $(MAKE) apt-install
 
 endif
 
@@ -163,16 +205,16 @@ cmaketest:
 	cd $(BUILDIR)/cmake/build ; cmake -DPREFIX:STRING=~/install_test_dir $(CMAKE_PARAMS) .. ; $(MAKE) install ; $(MAKE) uninstall
 
 c90test: clean
-	CFLAGS="-std=c90" $(MAKE) all  # will fail, due to // and long long
+	CFLAGS="-std=c90" $(MAKE) allmost  # will fail, due to missing support for `long long`
 
 gnu90test: clean
-	CFLAGS="-std=gnu90" $(MAKE) all
+	CFLAGS="-std=gnu90" $(MAKE) allmost
 
 c99test: clean
 	CFLAGS="-std=c99" $(MAKE) allmost
 
 gnu99test: clean
-	CFLAGS="-std=gnu99" $(MAKE) all
+	CFLAGS="-std=gnu99" $(MAKE) allmost
 
 c11test: clean
 	CFLAGS="-std=c11" $(MAKE) allmost
