@@ -444,11 +444,6 @@ size_t FSE_count(unsigned* count, unsigned* maxSymbolValuePtr,
     return FSE_count_wksp(count, maxSymbolValuePtr, src, srcSize, tmpCounters);
 }
 
-size_t FSE_estimateNCountSize(const short* normalizedCounter, unsigned maxSymbolValue, unsigned tableLog) {
-  BYTE dst[FSE_NCOUNTBOUND];
-  return FSE_writeNCount(dst, FSE_NCOUNTBOUND, normalizedCounter, maxSymbolValue, tableLog);
-}
-
 
 
 /*-**************************************************************
