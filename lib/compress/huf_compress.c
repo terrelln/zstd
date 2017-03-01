@@ -121,10 +121,10 @@ size_t HUF_compressWeights (void* dst, size_t dstSize, const void* weightTable, 
 }
 
 
-struct HUF_CElt_s {
-  U16  val;
-  BYTE nbBits;
-};   /* typedef'd to HUF_CElt within "huf.h" */
+// struct HUF_CElt_s {
+//   U16  val;
+//   BYTE nbBits;
+// };   /* typedef'd to HUF_CElt within "huf.h" */
 
 /*! HUF_writeCTable() :
     `CTable` : Huffman tree to save, using huf representation.
@@ -412,22 +412,20 @@ size_t HUF_buildCTable (HUF_CElt* tree, const U32* count, U32 maxSymbolValue, U3
 static size_t HUF_estimateCompressedSize(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue)
 {
     size_t nbBits = 0;
-    unsigned s;
-    for (s = 0; s <= maxSymbolValue; ++s) {
-        if (CTable[s].nbBits == 0 && count[s] != 0) {
-          return ERROR(GENERIC);
-        }
+    int s;
+    for (s = 0; s <= (int)maxSymbolValue; ++s) {
         nbBits += CTable[s].nbBits * count[s];
     }
     return nbBits >> 3;
 }
 
-static int HUF_validateCTable(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue) {
-  unsigned s;
-  for (s = 0; s <= maxSymbolValue; ++s) {
-    if (CTable[s].nbBits == 0 && count[s] != 0) return 0;
+static int HUF_validateCTable(const HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue) {
+  int bad = 0;
+  int s;
+  for (s = 0; s <= (int)maxSymbolValue; ++s) {
+    bad |= (count[s] != 0) & (CTable[s].nbBits == 0);
   }
-  return 1;
+  return bad;
 }
 
 static void HUF_encodeSymbol(BIT_CStream_t* bitCPtr, U32 symbol, const HUF_CElt* CTable)
@@ -578,8 +576,12 @@ static size_t HUF_compress_internal (
         if (largest <= (srcSize >> 7)+1) return 0;   /* Fast heuristic : not compressible enough */
     }
 
+    /* Check validity of previous table */
+    if (repeat && *repeat == HUF_repeat_check && !HUF_validateCTable(oldHufTable, count, maxSymbolValue)) {
+        *repeat = HUF_repeat_none;
+    }
     /* Heuristic : use existing table for small inputs */
-    if (srcSize <= 1024 && repeat && *repeat != HUF_repeat_none && (*repeat == HUF_repeat_valid || HUF_validateCTable(oldHufTable, count, maxSymbolValue))) {
+    if (srcSize <= 1024 && repeat && *repeat != HUF_repeat_none) {
         return HUF_compressCTable_internal(ostart, op, oend, src, srcSize, singleStream, oldHufTable);
     }
 
@@ -592,10 +594,11 @@ static size_t HUF_compress_internal (
 
     /* Write table description header */
     {   CHECK_V_F(hSize, HUF_writeCTable (op, dstSize, CTable, maxSymbolValue, huffLog) );
-        {   /* Check if using the previous table will be beneficial */
-            size_t const oldSize = repeat && *repeat ? HUF_estimateCompressedSize(oldHufTable, count, maxSymbolValue) : ERROR(GENERIC);
-            size_t const newSize = !HUF_isError(oldSize) ? HUF_estimateCompressedSize(CTable, count, maxSymbolValue) : 0;
-            if (!HUF_isError(oldSize) && (oldSize <= hSize + newSize || hSize + 12 >= srcSize)) {
+        /* Check if using the previous table will be beneficial */
+        if (repeat && *repeat != HUF_repeat_none) {
+            size_t const oldSize = HUF_estimateCompressedSize(oldHufTable, count, maxSymbolValue);
+            size_t const newSize = HUF_estimateCompressedSize(CTable, count, maxSymbolValue);
+            if (oldSize <= hSize + newSize || hSize + 12 >= srcSize) {
                 return HUF_compressCTable_internal(ostart, op, oend, src, srcSize, singleStream, oldHufTable);
             }
         }
