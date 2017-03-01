@@ -432,6 +432,14 @@ size_t HUF_estimateCompressedSize(HUF_CElt* CTable, const unsigned* count, unsig
     return nbBits >> 3;
 }
 
+static int HUF_validateCTable(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue) {
+  unsigned s;
+  for (s = 0; s <= maxSymbolValue; ++s) {
+    if (CTable[s].nbBits == 0 && count[s] != 0) return 0;
+  }
+  return 1;
+}
+
 static void HUF_encodeSymbol(BIT_CStream_t* bitCPtr, U32 symbol, const HUF_CElt* CTable)
 {
     BIT_addBitsFast(bitCPtr, CTable[symbol].val, CTable[symbol].nbBits);
@@ -563,6 +571,12 @@ static size_t HUF_compress_internal (
     {   CHECK_V_F(largest, FSE_count_wksp (table.count, &maxSymbolValue, (const BYTE*)src, srcSize, (U32*)workSpace) );
         if (largest == srcSize) { *ostart = ((const BYTE*)src)[0]; return 1; }   /* single symbol, rle */
         if (largest <= (srcSize >> 7)+1) return 0;   /* Fast heuristic : not compressible enough */
+    }
+
+    /* Heuristic : use existing table for small inputs */
+    if (srcSize <= 1024 && repeat && *repeat && HUF_validateCTable(oldHufTable, table.count, maxSymbolValue)) {
+      *repeat = 1;
+      return HUF_compress1X_usingCTable(op, oend - op, src, srcSize, oldHufTable);
     }
 
     /* Build Huffman Tree */
