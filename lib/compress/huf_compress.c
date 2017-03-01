@@ -586,7 +586,7 @@ static size_t HUF_compress_internal (
         *repeat = HUF_repeat_none;
     }
     /* Heuristic : use existing table for very small inputs */
-    if (srcSize <= 256 && repeat && *repeat != HUF_repeat_none) {
+    if (srcSize <= 1024 && repeat && *repeat != HUF_repeat_none) {
         return HUF_compressCTable_internal(ostart, op, oend, src, srcSize, singleStream, oldHufTable);
     }
 

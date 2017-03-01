@@ -43,6 +43,41 @@ static void BM_CompressFlush(benchmark::State& state) {
   ZSTD_freeCStream(stream);
 }
 
+static void BM_DecompressFlush(benchmark::State& state) {
+  std::string data;
+  data.resize(1ul << 20);
+  std::string compressed;
+  compressed.resize(2 * ZSTD_compressBound(data.size()));
+  RDG_genBuffer(&data[0], data.size(), 0.5, 0, 0x12345678);
+  ZSTD_CStream* stream = ZSTD_createCStream();
+  throwOnError(ZSTD_initCStream(stream, 1));
+  char const* pData = data.data();
+  char const* pEnd  = data.data() + data.size();
+  size_t dataProcessed = 0;
+  ZSTD_outBuffer out = {&compressed[0], compressed.size(), 0};
+  while (pData != pEnd) {
+    ZSTD_inBuffer in = {pData, (size_t)std::min(state.range(0), (int)(pEnd - pData)), 0};
+    while (in.pos != in.size) {
+      throwOnError(ZSTD_compressStream(stream, &out, &in));
+      benchmark::DoNotOptimize(out.dst);
+    }
+    dataProcessed += in.pos;
+    pData += in.pos;
+    throwOnError(ZSTD_flushStream(stream, &out));
+    benchmark::DoNotOptimize(out.dst);
+  }
+  throwOnError(ZSTD_endStream(stream, &out));
+  compressed.resize(out.pos);
+  ZSTD_freeCStream(stream);
+  while (state.KeepRunning()) {
+    size_t const size = throwOnError(ZSTD_decompress(&data[0], data.size(), compressed.data(), compressed.size()));
+    benchmark::DoNotOptimize(size);
+    benchmark::DoNotOptimize(data.data());
+  }
+  state.SetBytesProcessed(state.iterations() * data.size());
+}
+
+>>>>>>> Stashed changes
 // static int HUF_validateCTableBaseline(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue) {
 //   // unsigned s;
 //   // for (s = 0; s <= maxSymbolValue; ++s) {
@@ -169,6 +204,7 @@ static void BM_CompressFlush(benchmark::State& state) {
 // BENCHMARK(BM_estimate);
 // BENCHMARK(BM_ValidateCTableBaseline);
 // BENCHMARK(BM_ValidateCTable);
-BENCHMARK(BM_CompressFlush)->RangeMultiplier(2)->Range(128, 2048);
+BENCHMARK(BM_CompressFlush)->RangeMultiplier(2)->Range(128, 8192);
+BENCHMARK(BM_DecompressFlush)->RangeMultiplier(2)->Range(128, 8192);
 
 BENCHMARK_MAIN();

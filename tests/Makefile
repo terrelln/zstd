@@ -88,6 +88,9 @@ zstd-nolegacy:
 gzstd:
 	$(MAKE) -C $(PRGDIR) $@
 
+bench_flush: $(ZSTD_FILES) $(PRGDIR)/datagen.c bench_flush.cpp
+	$(CXX) -std=c++11 $(FLAGS) -lbenchmark $^ -o $@
+
 fullbench  : $(ZSTD_FILES) $(PRGDIR)/datagen.c fullbench.c
 	$(CC)      $(FLAGS) $^ -o $@$(EXT)
 
