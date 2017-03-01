@@ -17,7 +17,7 @@ static void BM_CompressFlush(benchmark::State& state) {
   data.resize(1ul << 20);
   std::string tmp;
   tmp.resize(ZSTD_CStreamOutSize());
-  RDG_genBuffer(&data[0], data.size(), 0.5, 0, 0x12345678);
+  RDG_genBuffer(&data[0], data.size(), 0.75, 0, 0x12345678);
   ZSTD_CStream* stream = ZSTD_createCStream();
   throwOnError(ZSTD_initCStream(stream, 1));
   char const* pData = data.data();
@@ -48,7 +48,7 @@ static void BM_DecompressFlush(benchmark::State& state) {
   data.resize(1ul << 20);
   std::string compressed;
   compressed.resize(2 * ZSTD_compressBound(data.size()));
-  RDG_genBuffer(&data[0], data.size(), 0.5, 0, 0x12345678);
+  RDG_genBuffer(&data[0], data.size(), 0.5, 0.75, 0x12345678);
   ZSTD_CStream* stream = ZSTD_createCStream();
   throwOnError(ZSTD_initCStream(stream, 1));
   char const* pData = data.data();
@@ -77,7 +77,6 @@ static void BM_DecompressFlush(benchmark::State& state) {
   state.SetBytesProcessed(state.iterations() * data.size());
 }
 
->>>>>>> Stashed changes
 // static int HUF_validateCTableBaseline(HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue) {
 //   // unsigned s;
 //   // for (s = 0; s <= maxSymbolValue; ++s) {
