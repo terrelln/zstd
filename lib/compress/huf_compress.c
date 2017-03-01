@@ -121,10 +121,10 @@ size_t HUF_compressWeights (void* dst, size_t dstSize, const void* weightTable, 
 }
 
 
-// struct HUF_CElt_s {
-//   U16  val;
-//   BYTE nbBits;
-// };   /* typedef'd to HUF_CElt within "huf.h" */
+struct HUF_CElt_s {
+  U16  val;
+  BYTE nbBits;
+};   /* typedef'd to HUF_CElt within "huf.h" */
 
 /*! HUF_writeCTable() :
     `CTable` : Huffman tree to save, using huf representation.
