@@ -167,11 +167,18 @@ typedef struct HUF_CElt_s HUF_CElt;   /* incomplete type */
 size_t HUF_buildCTable (HUF_CElt* CTable, const unsigned* count, unsigned maxSymbolValue, unsigned maxNbBits);
 size_t HUF_writeCTable (void* dst, size_t maxDstSize, const HUF_CElt* CTable, unsigned maxSymbolValue, unsigned huffLog);
 size_t HUF_compress4X_usingCTable(void* dst, size_t dstSize, const void* src, size_t srcSize, const HUF_CElt* CTable);
+
+
+typedef enum {
+   HUF_repeat_none,  /*< Cannot use the previous table */
+   HUF_repeat_check, /*< Can use the previous table but you must check it */
+   HUF_repeat_valid  /*< Can use the previous table and it is valid */
+ } HUF_repeat;
 /** HUF_compress4X_repeat() :
-*   Same as HUF_compress4X_wksp(), but considers using hufTable if (repeat && *repeat).
-*   If it uses hufTable it sets *repeat = 1.
-*   If it doesn't, and hufTable != NULL, it sets hufTable to the table used. */
-size_t HUF_compress4X_repeat(void* dst, size_t dstSize, const void* src, size_t srcSize, unsigned maxSymbolValue, unsigned tableLog, void* workSpace, size_t wkspSize, HUF_CElt* hufTable, int* repeat);  /**< `workSpace` must be a table of at least 1024 unsigned */
+*   Same as HUF_compress4X_wksp(), but considers using hufTable if *repeat != HUF_repeat_none.
+*   If it uses hufTable it does not modify hufTable or repeat.
+*   If it doesn't, it sets *repeat = HUF_repeat_none, and it sets hufTable to the table used. */
+size_t HUF_compress4X_repeat(void* dst, size_t dstSize, const void* src, size_t srcSize, unsigned maxSymbolValue, unsigned tableLog, void* workSpace, size_t wkspSize, HUF_CElt* hufTable, HUF_repeat* repeat);  /**< `workSpace` must be a table of at least 1024 unsigned */
 
 
 /** HUF_buildCTable_wksp() :
@@ -225,7 +232,7 @@ size_t HUF_compress1X_usingCTable(void* dst, size_t dstSize, const void* src, si
 *   Same as HUF_compress4X_wksp(), but considers using hufTable if (repeat && *repeat).
 *   If it uses hufTable it sets *repeat = 1.
 *   If it doesn't, and hufTable != NULL, it sets hufTable to the table used. */
-size_t HUF_compress1X_repeat(void* dst, size_t dstSize, const void* src, size_t srcSize, unsigned maxSymbolValue, unsigned tableLog, void* workSpace, size_t wkspSize, HUF_CElt* hufTable, int* repeat);  /**< `workSpace` must be a table of at least 1024 unsigned */
+size_t HUF_compress1X_repeat(void* dst, size_t dstSize, const void* src, size_t srcSize, unsigned maxSymbolValue, unsigned tableLog, void* workSpace, size_t wkspSize, HUF_CElt* hufTable, HUF_repeat* repeat);  /**< `workSpace` must be a table of at least 1024 unsigned */
 
 size_t HUF_decompress1X2 (void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize);   /* single-symbol decoder */
 size_t HUF_decompress1X4 (void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize);   /* double-symbol decoder */

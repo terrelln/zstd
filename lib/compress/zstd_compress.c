@@ -81,7 +81,7 @@ struct ZSTD_CCtx_s {
     U32* chainTable;
     HUF_CElt* hufTable;
     U32 flagStaticTables;
-    U32 flagStaticHufTable;
+    HUF_repeat flagStaticHufTable;
     FSE_CTable offcodeCTable  [FSE_CTABLE_SIZE_U32(OffFSELog, MaxOff)];
     FSE_CTable matchlengthCTable[FSE_CTABLE_SIZE_U32(MLFSELog, MaxML)];
     FSE_CTable litlengthCTable  [FSE_CTABLE_SIZE_U32(LLFSELog, MaxLL)];
@@ -257,7 +257,7 @@ static size_t ZSTD_resetCCtx_advanced (ZSTD_CCtx* zc,
     if (crp == ZSTDcrp_continue)
         if (ZSTD_equivalentParams(params, zc->params)) {
             zc->flagStaticTables = 0;
-            zc->flagStaticHufTable = 0;
+            zc->flagStaticHufTable = HUF_repeat_none;
             return ZSTD_continueCCtx(zc, params, frameContentSize);
         }
 
@@ -293,7 +293,7 @@ static size_t ZSTD_resetCCtx_advanced (ZSTD_CCtx* zc,
         ptr = zc->hashTable3 + h3Size;
         zc->hufTable = (HUF_CElt*)ptr;
         zc->flagStaticTables = 0;
-        zc->flagStaticHufTable = 0;
+        zc->flagStaticHufTable = HUF_repeat_none;
         ptr = ((U32*)ptr) + 256;  /* note : HUF_CElt* is incomplete type, size is simulated using U32 */
 
         zc->nextToUpdate = 1;
@@ -507,21 +507,19 @@ static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
     }
 
     if (dstCapacity < lhSize+1) return ERROR(dstSize_tooSmall);   /* not enough space for compression */
-    {   int repeat = zc->flagStaticHufTable;
+    {   HUF_repeat repeat = zc->flagStaticHufTable;
         cLitSize = singleStream ? HUF_compress1X_repeat(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), zc->hufTable, &repeat)
                                 : HUF_compress4X_repeat(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), zc->hufTable, &repeat);
-        if (repeat) {
-          hType = set_repeat;
-        }
-        zc->flagStaticHufTable = 1;
+        if (repeat) { hType = set_repeat; }
+        else { zc->flagStaticHufTable = HUF_repeat_check; }
     }
 
     if ((cLitSize==0) | (cLitSize >= srcSize - minGain)) {
-        zc->flagStaticHufTable = 0;
+        zc->flagStaticHufTable = HUF_repeat_none;
         return ZSTD_noCompressLiterals(dst, dstCapacity, src, srcSize);
     }
     if (cLitSize==1) {
-        zc->flagStaticHufTable = 0;
+        zc->flagStaticHufTable = HUF_repeat_none;
         return ZSTD_compressRleLiteralsBlock(dst, dstCapacity, src, srcSize);
     }
 
@@ -768,7 +766,7 @@ size_t ZSTD_compressSequences(ZSTD_CCtx* zc,
 _check_compressibility:
     { size_t const minGain = ZSTD_minGain(srcSize);
       size_t const maxCSize = srcSize - minGain;
-      if ((size_t)(op-ostart) >= maxCSize) { zc->flagStaticHufTable = 0; return 0; } }
+      if ((size_t)(op-ostart) >= maxCSize) { zc->flagStaticHufTable = HUF_repeat_none; return 0; } }
 
     /* confirm repcodes */
     { int i; for (i=0; i<ZSTD_REP_NUM; i++) zc->rep[i] = zc->repToConfirm[i]; }
@@ -2619,7 +2617,7 @@ static size_t ZSTD_loadDictEntropyStats(ZSTD_CCtx* cctx, const void* dict, size_
     }
 
     cctx->flagStaticTables = 1;
-    cctx->flagStaticHufTable = 1;
+    cctx->flagStaticHufTable = HUF_repeat_valid;
     return dictPtr - (const BYTE*)dict;
 }
 
