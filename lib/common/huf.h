@@ -169,9 +169,9 @@ size_t HUF_writeCTable (void* dst, size_t maxDstSize, const HUF_CElt* CTable, un
 size_t HUF_compress4X_usingCTable(void* dst, size_t dstSize, const void* src, size_t srcSize, const HUF_CElt* CTable);
 
 typedef enum {
-   HUF_repeat_none,  /*< Cannot use the previous table */
-   HUF_repeat_check, /*< Can use the previous table but you must check it */
-   HUF_repeat_valid  /*< Can use the previous table and it is valid */
+   HUF_repeat_none,  /**< Cannot use the previous table */
+   HUF_repeat_check, /**< Can use the previous table but you must check it. Note : The previous table must have been constructed by HUF_compress{1, 4}X_repeat */
+   HUF_repeat_valid  /**< Can use the previous table and it is asumed to be valid */
  } HUF_repeat;
 /** HUF_compress4X_repeat() :
 *   Same as HUF_compress4X_wksp(), but considers using hufTable if *repeat != HUF_repeat_none.

@@ -425,7 +425,7 @@ static int HUF_validateCTable(const HUF_CElt* CTable, const unsigned* count, uns
   for (s = 0; s <= (int)maxSymbolValue; ++s) {
     bad |= (count[s] != 0) & (CTable[s].nbBits == 0);
   }
-  return bad;
+  return !bad;
 }
 
 static void HUF_encodeSymbol(BIT_CStream_t* bitCPtr, U32 symbol, const HUF_CElt* CTable)
@@ -570,6 +570,11 @@ static size_t HUF_compress_internal (
     if (!maxSymbolValue) maxSymbolValue = HUF_SYMBOLVALUE_MAX;
     if (!huffLog) huffLog = HUF_TABLELOG_DEFAULT;
 
+    /* Heuristic : If we don't need to check the validity of the old table use the old table for small inputs */
+    if (srcSize <= 1024 && repeat && *repeat == HUF_repeat_valid) {
+        return HUF_compressCTable_internal(ostart, op, oend, src, srcSize, singleStream, oldHufTable);
+    }
+
     /* Scan input and build symbol stats */
     {   CHECK_V_F(largest, FSE_count_wksp (count, &maxSymbolValue, (const BYTE*)src, srcSize, (U32*)workSpace) );
         if (largest == srcSize) { *ostart = ((const BYTE*)src)[0]; return 1; }   /* single symbol, rle */
@@ -580,8 +585,8 @@ static size_t HUF_compress_internal (
     if (repeat && *repeat == HUF_repeat_check && !HUF_validateCTable(oldHufTable, count, maxSymbolValue)) {
         *repeat = HUF_repeat_none;
     }
-    /* Heuristic : use existing table for small inputs */
-    if (srcSize <= 1024 && repeat && *repeat != HUF_repeat_none) {
+    /* Heuristic : use existing table for very small inputs */
+    if (srcSize <= 256 && repeat && *repeat != HUF_repeat_none) {
         return HUF_compressCTable_internal(ostart, op, oend, src, srcSize, singleStream, oldHufTable);
     }
 

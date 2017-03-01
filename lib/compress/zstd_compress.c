@@ -508,9 +508,10 @@ static size_t ZSTD_compressLiterals (ZSTD_CCtx* zc,
 
     if (dstCapacity < lhSize+1) return ERROR(dstSize_tooSmall);   /* not enough space for compression */
     {   HUF_repeat repeat = zc->flagStaticHufTable;
+        if (repeat == HUF_repeat_valid && lhSize == 3) singleStream = 1;
         cLitSize = singleStream ? HUF_compress1X_repeat(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), zc->hufTable, &repeat)
                                 : HUF_compress4X_repeat(ostart+lhSize, dstCapacity-lhSize, src, srcSize, 255, 11, zc->tmpCounters, sizeof(zc->tmpCounters), zc->hufTable, &repeat);
-        if (repeat) { hType = set_repeat; }
+        if (repeat != HUF_repeat_none) { hType = set_repeat; }
         else { zc->flagStaticHufTable = HUF_repeat_check; }
     }
 
