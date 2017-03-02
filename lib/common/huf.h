@@ -179,7 +179,6 @@ typedef enum {
 *   If it doesn't, it sets *repeat = HUF_repeat_none, and it sets hufTable to the table used. */
 size_t HUF_compress4X_repeat(void* dst, size_t dstSize, const void* src, size_t srcSize, unsigned maxSymbolValue, unsigned tableLog, void* workSpace, size_t wkspSize, HUF_CElt* hufTable, HUF_repeat* repeat);  /**< `workSpace` must be a table of at least 1024 unsigned */
 
-
 /** HUF_buildCTable_wksp() :
  *  Same as HUF_buildCTable(), but using externally allocated scratch buffer.
  *  `workSpace` must be aligned on 4-bytes boundaries, and be at least as large as a table of 1024 unsigned.
