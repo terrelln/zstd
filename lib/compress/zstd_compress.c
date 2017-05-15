@@ -20,6 +20,7 @@
 /*-*************************************
 *  Dependencies
 ***************************************/
+#include <math.h>
 #include <string.h>         /* memset */
 #include "mem.h"
 #define FSE_STATIC_LINKING_ONLY   /* FSE_encodeSymbol */
@@ -1644,7 +1645,11 @@ static size_t ZSTD_compressBlock_internal(ZSTD_CCtx* zc, void* dst, size_t dstCa
 *   Frame is supposed already started (header already produced)
 *   @return : compressed size, or an error code
 */
+<<<<<<< HEAD
 static size_t ZSTD_compress_frameChunk (ZSTD_CCtx* cctx,
+=======
+static size_t ZSTD_compress_generic0(ZSTD_CCtx* cctx,
+>>>>>>> Block splitting prototype
                                      void* dst, size_t dstCapacity,
                                const void* src, size_t srcSize,
                                      U32 lastFrameChunk)
@@ -1734,6 +1739,139 @@ static size_t ZSTD_compress_frameChunk (ZSTD_CCtx* cctx,
             assert(dstCapacity >= cSize);
             dstCapacity -= cSize;
     }   }
+
+    if (lastFrameChunk && (op>ostart)) cctx->stage = ZSTDcs_ending;
+    return op-ostart;
+}
+
+static size_t ZSTD_compressBlocks_internal(ZSTD_CCtx* zc, void* dst, size_t dstCapacity, const void* src, size_t srcSize, U32 const lastBlock)
+{
+    ZSTD_blockCompressor const blockCompressor = ZSTD_selectBlockCompressor(zc->params.cParams.strategy, zc->lowLimit < zc->dictLimit);
+    const BYTE* const base = zc->base;
+    const BYTE* const istart = (const BYTE*)src;
+    const BYTE* ip = istart;
+    BYTE* op = (BYTE*)dst;
+    const U32 current = (U32)(istart-base);
+    size_t cSize;
+
+    if (srcSize < MIN_CBLOCK_SIZE+ZSTD_blockHeaderSize+1) return 0;   /* don't even attempt compression below a certain srcSize */
+    ZSTD_resetSeqStore(&(zc->seqStore));
+    if (current > zc->nextToUpdate + 384)
+        zc->nextToUpdate = current - MIN(192, (U32)(current - zc->nextToUpdate - 384));   /* limited update after finding a very long match */
+    blockCompressor(zc, src, srcSize);
+
+    static size_t totalUnsplitSize = 0;
+    static size_t totalSplitSize = 0;
+    {
+      // Print the cost of encoding the block w/o splitting.
+      zc->hufCTable_repeatMode = HUF_repeat_none;
+      size_t const litSize =
+          ZSTD_compressLiterals(zc, dst, dstCapacity, zc->seqStore.litStart,
+                                zc->seqStore.lit - zc->seqStore.litStart);
+      zc->hufCTable_repeatMode = HUF_repeat_none;
+      assert(!ZSTD_isError(litSize));
+      // fprintf(stderr, "Unsplit literals size: %zu\n", litSize);
+      totalUnsplitSize += litSize;
+    }
+    {
+      // Try block splitting
+      size_t size = 0;
+      size_t i;
+      size_t nbPartitions;
+      size_t *const partitions =
+          ZSTD_block_split(&zc->seqStore, &nbPartitions);
+      assert(partitions != NULL);
+      fprintf(stderr, "# Partitions %zu\n", nbPartitions);
+      // Sum the partition sizes...
+      for (i = 1; i <= nbPartitions; ++i) {
+        zc->hufCTable_repeatMode = HUF_repeat_none;
+        size_t const litSize = ZSTD_compressLiterals(
+            zc, dst, dstCapacity, zc->seqStore.litStart + partitions[i - 1],
+            partitions[i] - partitions[i - 1]);
+        assert(!ZSTD_isError(litSize));
+        size += litSize;
+      }
+      free(partitions);
+      zc->hufCTable_repeatMode = HUF_repeat_none;
+      // fprintf(stderr, "Split literals size: %zu\n", size);
+      totalSplitSize += size;
+    }
+    fprintf(stderr, "%zu / %zu\n", totalSplitSize, totalUnsplitSize);
+    // Start optimizing here...
+    // Check both repeat and new tables for all 4 types...
+    // Don't mess up the repcodes or repeat values...
+
+    cSize = ZSTD_compressSequences(zc, op + ZSTD_blockHeaderSize, dstCapacity - ZSTD_blockHeaderSize, srcSize);
+    if (ZSTD_isError(cSize)) return cSize;
+
+    if (cSize == 0) {  /* block is not compressible */
+        U32 const cBlockHeader24 = lastBlock + (((U32)bt_raw)<<1) + (U32)(srcSize << 3);
+        if (srcSize + ZSTD_blockHeaderSize > dstCapacity) return ERROR(dstSize_tooSmall);
+        MEM_writeLE32(op, cBlockHeader24);   /* no pb, 4th byte will be overwritten */
+        memcpy(op + ZSTD_blockHeaderSize, ip, srcSize);
+        cSize = ZSTD_blockHeaderSize+srcSize;
+    } else {
+        U32 const cBlockHeader24 = lastBlock + (((U32)bt_compressed)<<1) + (U32)(cSize << 3);
+        MEM_writeLE24(op, cBlockHeader24);
+        cSize += ZSTD_blockHeaderSize;
+    }
+    return cSize;
+}
+
+static size_t ZSTD_compress_generic(ZSTD_CCtx* cctx,
+                                     void* dst, size_t dstCapacity,
+                               const void* src, size_t srcSize,
+                                     U32 lastFrameChunk)
+{
+    size_t blockSize = cctx->blockSize;
+    size_t remaining = srcSize;
+    const BYTE* ip = (const BYTE*)src;
+    BYTE* const ostart = (BYTE*)dst;
+    BYTE* op = ostart;
+    U32 const maxDist = 1 << cctx->params.cParams.windowLog;
+
+    if (cctx->params.fParams.checksumFlag && srcSize)
+        XXH64_update(&cctx->xxhState, src, srcSize);
+
+    while (remaining) {
+        U32 const lastBlock = lastFrameChunk & (blockSize >= remaining);
+        size_t cSize;
+
+        if (dstCapacity < ZSTD_blockHeaderSize + MIN_CBLOCK_SIZE)
+            return ERROR(dstSize_tooSmall);   /* not enough space to store compressed block */
+        if (remaining < blockSize) blockSize = remaining;
+
+        /* preemptive overflow correction */
+        if (cctx->lowLimit > (3U<<29)) {
+            U32 const cycleMask = (1 << ZSTD_cycleLog(cctx->params.cParams.hashLog, cctx->params.cParams.strategy)) - 1;
+            U32 const current = (U32)(ip - cctx->base);
+            U32 const newCurrent = (current & cycleMask) + (1 << cctx->params.cParams.windowLog);
+            U32 const correction = current - newCurrent;
+            ZSTD_STATIC_ASSERT(ZSTD_WINDOWLOG_MAX_64 <= 30);
+            ZSTD_reduceIndex(cctx, correction);
+            cctx->base += correction;
+            cctx->dictBase += correction;
+            cctx->lowLimit -= correction;
+            cctx->dictLimit -= correction;
+            if (cctx->nextToUpdate < correction) cctx->nextToUpdate = 0;
+            else cctx->nextToUpdate -= correction;
+        }
+
+        if ((U32)(ip+blockSize - cctx->base) > cctx->loadedDictEnd + maxDist) {
+            /* enforce maxDist */
+            U32 const newLowLimit = (U32)(ip+blockSize - cctx->base) - maxDist;
+            if (cctx->lowLimit < newLowLimit) cctx->lowLimit = newLowLimit;
+            if (cctx->dictLimit < cctx->lowLimit) cctx->dictLimit = cctx->lowLimit;
+        }
+
+        cSize = ZSTD_compressBlocks_internal(cctx, op, dstCapacity, ip, blockSize, lastBlock);
+        if (ZSTD_isError(cSize)) return cSize;
+
+        remaining -= blockSize;
+        dstCapacity -= cSize;
+        ip += blockSize;
+        op += cSize;
+    }
 
     if (lastFrameChunk && (op>ostart)) cctx->stage = ZSTDcs_ending;
     return op-ostart;

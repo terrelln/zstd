@@ -16,8 +16,12 @@ cxx_library(
     visibility=['PUBLIC'],
     exported_headers=subdir_glob([
         ('compress', 'zstd*.h'),
+        ('compress', 'block_splitter.h'),
     ]),
-    srcs=glob(['compress/zstd*.c']),
+    srcs=glob([
+        'compress/zstd*.c',
+        'compress/block_splitter.c',
+    ]),
     deps=[':common'],
 )
 
