@@ -878,6 +878,13 @@ static seq_t ZSTD_decodeSequence(seqState_t* seqState)
     return seq;
 }
 
+FORCE_NOINLINE void ZSTD_slowCopy(BYTE* op, const BYTE* ip, size_t bytes)
+{
+    size_t i;
+    for (i = 0; i < bytes; ++i) {
+        op[i] = ip[i];
+    }
+}
 
 FORCE_INLINE
 size_t ZSTD_execSequence(BYTE* op,
@@ -920,8 +927,9 @@ size_t ZSTD_execSequence(BYTE* op,
             sequence.matchLength -= length1;
             match = base;
             if (op > oend_w || sequence.matchLength < MINMATCH) {
-              U32 i;
-              for (i = 0; i < sequence.matchLength; ++i) op[i] = match[i];
+              ZSTD_slowCopy(op, match, sequence.matchLength);
+              // U32 i;
+              // for (i = 0; i < sequence.matchLength; ++i) op[i] = match[i];
               return sequenceLength;
             }
     }   }
@@ -951,7 +959,8 @@ size_t ZSTD_execSequence(BYTE* op,
             match += oend_w - op;
             op = oend_w;
         }
-        while (op < oMatchEnd) *op++ = *match++;
+        ZSTD_slowCopy(op, match, oMatchEnd - op);
+        // while (op < oMatchEnd) *op++ = *match++;
     } else {
         ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength-8);   /* works even if matchLength < 8 */
     }
