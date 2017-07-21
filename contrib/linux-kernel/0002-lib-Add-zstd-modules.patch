@@ -101,6 +101,7 @@ BtrFS and SquashFS patches coming next.
 zstd source repository: https://github.com/facebook/zstd
 
 Signed-off-by: Nick Terrell <terrelln@fb.com>
+Tested-by: Austin S. Hemmelgarn <ahferroin7@gmail.com>
 ---
 v1 -> v2:
 - Use div_u64() for division of u64s

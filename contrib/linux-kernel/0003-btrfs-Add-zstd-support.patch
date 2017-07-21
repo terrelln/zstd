@@ -62,6 +62,7 @@ files into `/dev/null`. See the benchmark file [2] for details.
 zstd source repository: https://github.com/facebook/zstd
 
 Signed-off-by: Nick Terrell <terrelln@fb.com>
+Tested-by: Austin S. Hemmelgarn <ahferroin7@gmail.com>
 ---
 v2 -> v3:
 - Port upstream BtrFS commits e1ddce71d6, 389a6cfc2a, and 6acafd1eff
