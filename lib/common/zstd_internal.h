@@ -65,10 +65,12 @@
 ***************************************/
 #if defined(ZSTD_DEBUG) && (ZSTD_DEBUG>=1)
 #  include <assert.h>
+static unsigned const kDebug = ZSTD_DEBUG;
 #else
 #  ifndef assert
 #    define assert(condition) ((void)0)
 #  endif
+static unsigned const kDebug = 0;
 #endif
 
 #define ZSTD_STATIC_ASSERT(c) { enum { ZSTD_static_assert = 1/(int)(!!(c)) }; }
@@ -285,6 +287,41 @@ typedef struct {
     FSE_repeat matchlength_repeatMode;
     FSE_repeat litlength_repeatMode;
 } ZSTD_entropyCTables_t;
+
+/* Block splitter types */
+typedef struct {
+    U32 nbSeq;      /* The # of sequences */
+    char modes[4]; /* lit, ml, ll, of: basic, compressed, rle, repeat, any */
+} blockSplit_t;
+
+typedef struct {
+    U32 idx;
+    symbolEncodingType_e mode;
+} pred_t;
+
+typedef struct {
+    U16 freqs[256]; /* maxNbSeq < 2^16-1 */
+    double accum;   /* accumulator */
+    double maxCost; /* Maximum cost allowed for this window */
+    U32 endIdx;        /* one index past the end */
+    U32 endSeq;        /* one sequence past the end */
+} window_t;
+
+typedef struct {
+    window_t* windows;
+    U32 nbWindows;
+    pred_t* pred;
+    double* minCost;
+    size_t* offsets;
+    size_t maxNbSplits;
+    blockSplit_t* splits;
+} blockSplitState_t;
+
+typedef enum {
+    st_lit = 0, st_off, st_ml, st_ll, st_end
+} splitType_e;
+
+size_t ZSTD_blockSplit(blockSplitState_t* state, seqStore_t const* seqStorePtr);
 
 const seqStore_t* ZSTD_getSeqStore(const ZSTD_CCtx* ctx);
 void ZSTD_seqToCodes(const seqStore_t* seqStorePtr);

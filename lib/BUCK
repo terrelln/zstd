@@ -21,6 +21,7 @@ cxx_library(
         ('compress', 'zstd_opt.h'),
     ]),
     srcs=[
+        'compress/block_splitter.c',
         'compress/zstd_compress.c',
         'compress/zstdmt_compress.c',
     ],
