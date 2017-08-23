@@ -1530,6 +1530,7 @@ void ZSTD_saveOffsets(seqStore_t* seqStorePtr,
     BYTE const* rep = ((extDict) && ((repIndex) < dictLimit)) ? (dictBase + repIndex) : ((ip) - (offset)); \
     BYTE const* const repEnd = ((extDict) && ((repIndex) < dictLimit)) ? dictEnd : iend
 
+#if 0
 /* Internal function, do not call directly */
 FORCE_INLINE_TEMPLATE
 int ZSTD_isRepValid32_fn(U32 const dictLimit, U32 const lowestIndex,
@@ -1564,6 +1565,13 @@ int ZSTD_isRepValid32_fn(U32 const dictLimit, U32 const lowestIndex,
 #define ZSTD_isRepValid32(repIndex, offset, rep, ip, extDict)                  \
   ZSTD_isRepValid32_fn(dictLimit, lowestIndex, repIndex, offset, rep, ip,      \
                        extDict)
+#else
+#define ZSTD_isRepValid32(repIndex, offset, rep, ip, extDict)                  \
+  ((extDict) ? ((((U32)((dictLimit - 1) - (repIndex)) >= 3) &                  \
+                 ((repIndex) > lowestIndex)) &&                                \
+                (MEM_read32((rep)) == MEM_read32((ip))))                       \
+             : (((offset) > 0) & (MEM_read32((rep)) == MEM_read32((ip)))))
+#endif
 
 /**
  * Determines the length of the match.
