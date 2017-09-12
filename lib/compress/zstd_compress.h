@@ -259,6 +259,164 @@ MEM_STATIC size_t ZSTD_count_2segments(const BYTE* ip, const BYTE* match, const 
     return matchLength + ZSTD_count(ip+matchLength, iStart, iEnd);
 }
 
+/*-******************************************
+*  Generic single segment / ext dict macros
+*********************************************/
+
+/**
+ * Defines constant limits common to all compression functions based on the
+ * cctx. Values implicitly used in the functions below.
+ *
+ * Definitions (const):
+ * base - The base pointer for the current segment.
+ * dictLimit - The index of the transition between the current segment and the
+ *             external dictionary.
+ * lowPrefixPtr - base + dictLimit.
+ * lowestIndex - The lowest allowable index for a match.
+ * dictBase - The base pointer for the second segment (the external dictionary).
+ * dictStart - The beginning of the data for the second segment.
+ * dictEnd - The end of the data for the second segment.
+ * iend - The end of the data for the current segment/block.
+ *
+ * Parameters:
+ * extDict - Single segment or external dictionary?
+ *
+ * Single segment:
+ * +--+-------------------------------------------------------+------+--------+
+ * |  | Segment 1                                             |      |        |
+ * +--+-------------------------------------------------------+------+--------+
+ * ^  ^                                                       ^      ^
+ * |  |                                                       |      |
+ * |  +- lowPrefixPtr                                         +- ip  +- iend
+ * +- base
+ *
+ * Two segment:
+ * +--+-----------------------+------+-------+--+-----------------------------+
+ * |  | Segment 1             |      |       |  | Segment 2                   |
+ * +--+-----------------------+------+-------+--+-----------------------------+
+ * ^  ^                       ^      ^       ^  ^                             ^
+ * |  |                       |      |       |  |                             |
+ * |  +- lowPrefixPtr         +- ip  +- iend |  +- dictStart         dictEnd -+
+ * +- base                                   +- dictBase
+ */
+#define ZSTD_DEFINE_LIMITS(cctx, extDict)                                      \
+    BYTE const *const base = cctx->base;                                       \
+    U32 const dictLimit = cctx->dictLimit;                                     \
+    BYTE const *const lowPrefixPtr = base + dictLimit;                         \
+    U32 const lowestIndex = (extDict) ? cctx->lowLimit : dictLimit;            \
+    BYTE const *const dictBase = (extDict) ? cctx->dictBase : NULL;            \
+    BYTE const *const dictStart = (extDict) ? dictBase + lowestIndex : NULL;   \
+    BYTE const *const dictEnd = (extDict) ? dictBase + dictLimit : NULL
+
+
+/* Internal function, do not call directly */
+FORCE_INLINE_TEMPLATE
+void ZSTD_initOffsets_fn(BYTE const* const lowPrefixPtr,
+                         U32* offset_1, U32* offset_2, U32* offsetSaved,
+                         BYTE const* const ip, U32 const extDict)
+{
+    if (!extDict) {
+        U32 const maxRep = (U32)(ip-lowPrefixPtr);
+        if (*offset_2 > maxRep) *offsetSaved = *offset_2, *offset_2 = 0;
+        if (*offset_1 > maxRep) *offsetSaved = *offset_1, *offset_1 = 0;
+    }
+}
+#define ZSTD_initOffsets(offset_1, offset_2, offsetSaved, ip, extDict)         \
+  ZSTD_initOffsets_fn(lowPrefixPtr, offset_1, offset_2, offsetSaved, ip,       \
+                      extDict)
+
+FORCE_INLINE_TEMPLATE
+void ZSTD_saveOffsets(seqStore_t* seqStorePtr,
+                      U32 const offset_1, U32 const offset_2,
+                      U32 const offsetSaved)
+{
+    seqStorePtr->repToConfirm[0] = offset_1 ? offset_1 : offsetSaved;
+    seqStorePtr->repToConfirm[1] = offset_2 ? offset_2 : offsetSaved;
+}
+
+/**
+ * Defines variables for the match given by matchIndex.
+ *
+ * Definitions:
+ * matchStart (const) - The lowest the match can be extended back to.
+ * match (mutable) - The match pointer that can be dereferenced.
+ * matchEnd (const) - The highest the match can extend.
+ *
+ * Parameters:
+ * matchIndex - The match index.
+ * extDict - Single segment or external dictionary?
+ */
+#define ZSTD_DEFINE_MATCH(matchStart, match, matchEnd, matchIndex, extDict)    \
+    BYTE const* const matchStart = ((extDict) && ((matchIndex) < dictLimit)) ? dictStart : lowPrefixPtr; \
+    BYTE const* match = (((extDict) && ((matchIndex) < dictLimit)) ? dictBase : base) + (matchIndex); \
+    BYTE const* const matchEnd = ((extDict) && ((matchIndex) < dictLimit)) ? dictEnd : iend
+
+/**
+ * Defines variables for the given repcode offset relative to ip.
+ *
+ * Definitions:
+ * repIndex (const) - The index of the repcode.
+ * rep (mutable) - The repcode match pointer that can be dereferenced.
+ * repEnd (const) - The highest the repcode match can extend.
+ *
+ * Parameters:
+ * ip - The current input pointer.
+ * offset - The repcode offset relative to ip.
+ * extDict - Single segment or external dictionary?
+ */
+#define ZSTD_DEFINE_REP(repIndex, rep, repEnd, ip, offset, extDict) \
+    U32 const repIndex = (U32)((ip) - base) - (offset); \
+    BYTE const* rep = ((extDict) && ((repIndex) < dictLimit)) ? (dictBase + repIndex) : ((ip) - (offset)); \
+    BYTE const* const repEnd = ((extDict) && ((repIndex) < dictLimit)) ? dictEnd : iend
+
+/* Internal function, do not call directly */
+FORCE_INLINE_TEMPLATE
+int ZSTD_isRepValid32_fn(U32 const dictLimit, U32 const lowestIndex,
+                         U32 const repIndex, U32 const offset,
+                         BYTE const* const rep, BYTE const* const ip,
+                         U32 const extDict)
+{
+    if (extDict) {
+        /* The repcode can't be checked if it is in the last 3 bytes of the
+         * dictionary, so discard it if so. The repcode is invalid if its index
+         * is less than the lowestIndex.
+         */
+        return (((U32)((dictLimit - 1) - repIndex) >= 3) &
+                (repIndex > lowestIndex)) &&
+               (MEM_read32(rep) == MEM_read32(ip));
+    }
+    /* offset_1 assume initialized by ZSTD_initOffsets().
+     * It must be 0 if it is invalid.
+     */
+    return (offset > 0) & (MEM_read32(rep) == MEM_read32(ip));
+}
+
+/**
+ * Check if rep is valid and the first 4 bytes match ip.
+ *
+ * Parameters:
+ * offset, repIndex, rep - Three different representations of the repcode.
+ *                         The offset from ip, index, and pointer.
+ * ip - The current input pointer.
+ * extDict - Single segment or external dictionary?
+ */
+#define ZSTD_isRepValid32(repIndex, offset, rep, ip, extDict)                  \
+  ZSTD_isRepValid32_fn(dictLimit, lowestIndex, repIndex, offset, rep, ip,      \
+                       extDict)
+
+/**
+ * Determines the length of the match.
+ *
+ * Parameters:
+ * ip - The current input pointer.
+ * match - The match pointer.
+ * iend - The end of the input range.
+ * mend - The end of the match contiguous range.
+ * extDict - Single segment or external dictionary?
+ */
+#define ZSTD_count_generic(ip, match, iend, mend, extDict)                     \
+  (extDict ? ZSTD_count_2segments(ip, match, iend, mend, lowPrefixPtr)         \
+           : ZSTD_count(ip, match, iend))
 
 /*-*************************************
 *  Hashes
