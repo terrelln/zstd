@@ -5,26 +5,15 @@ sudo: required
 dist: trusty
 matrix:
   include:
-    # Ubuntu 14.04
-    - env: Cmd='make gcc6install && CC=gcc-6 make clean uasan-test-zstd'
-    - env: Cmd='make gcc6install libc6install && CC=gcc-6 make clean uasan-test-zstd32'
-    - env: Cmd='make clang38install && CC=clang-3.8 make clean msan-test-zstd'
+    # OS X Mavericks
+    - env: Cmd="make test"
+      os: osx
 
-    - env: Cmd='make gcc6install && CC=gcc-6 make clean uasan-fuzztest'
-    - env: Cmd='make gcc6install libc6install && CC=gcc-6 CFLAGS=-m32 make clean uasan-fuzztest'
-    - env: Cmd='make clang38install && CC=clang-3.8 make clean msan-fuzztest'
-    - env: Cmd='make clang38install && CC=clang-3.8 make clean tsan-test-zstream'
+before_install:
+  - if [ `uname` = "Darwin" ]; then brew update; fi
 
-    - env: Cmd='make valgrindinstall && make -C tests clean valgrindTest'
-
-    - env: Cmd='make arminstall && make armfuzz'
-    - env: Cmd='make arminstall && make aarch64fuzz'
-    - env: Cmd='make ppcinstall && make ppcfuzz'
-    - env: Cmd='make ppcinstall && make ppc64fuzz'
-    - env: Cmd='make -j uasanregressiontest'
-    - env: Cmd='make -j msanregressiontest'
-
-    - env: Cmd='make lz4install && make -C tests test-lz4'
+install:
+  - if [ `uname` = "Darwin" ]; then brew install xz; fi
 
 git:
   depth: 1
@@ -33,6 +22,7 @@ branches:
   only:
   - dev
   - master
+  - testing
 
 script:
   - JOB_NUMBER=$(echo $TRAVIS_JOB_NUMBER | sed -e 's:[0-9][0-9]*\.\(.*\):\1:')

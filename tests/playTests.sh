@@ -5,6 +5,12 @@ die() {
     exit 1
 }
 
+display_time()
+{
+  echo -n "XXX"
+  date
+}
+
 roundTripTest() {
     if [ -n "$3" ]; then
         cLevel="$3"
@@ -91,6 +97,7 @@ else
     hasMT="true"
 fi
 
+display_time
 $ECHO "\n**** simple tests **** "
 
 ./datagen > tmp
@@ -166,6 +173,7 @@ $ZSTD -f tmp && die "tmp not present : should have failed"
 test ! -f tmp.zst  # tmp.zst should not be created
 
 
+display_time
 $ECHO "\n**** Advanced compression parameters **** "
 $ECHO "Hello world!" | $ZSTD --zstd=windowLog=21,      - -o tmp.zst && die "wrong parameters not detected!"
 $ECHO "Hello world!" | $ZSTD --zstd=windowLo=21        - -o tmp.zst && die "wrong parameters not detected!"
@@ -233,6 +241,7 @@ rm -f hello.tmp world.tmp hello.tmp.zst world.tmp.zst
 fi
 
 
+display_time
 $ECHO "\n**** test sparse file support **** "
 
 ./datagen -g5M  -P100 > tmpSparse
@@ -339,6 +348,7 @@ $ZSTD --train-legacy -q tmp && die "Dictionary training should fail : source is 
 rm tmp*
 
 
+display_time
 $ECHO "\n**** cover dictionary tests **** "
 
 TESTFILE=../programs/zstdcli.c
@@ -411,6 +421,7 @@ $ZSTD -t -r files
 $ZSTD -c -r files | $ZSTD -t
 
 
+display_time
 $ECHO "\n**** benchmark mode tests **** "
 
 $ECHO "bench one file"
@@ -505,6 +516,7 @@ else
 fi
 
 
+display_time
 $ECHO "\n**** xz frame tests **** "
 
 if [ $LZMAMODE -eq 1 ]; then
@@ -558,24 +570,43 @@ fi
 
 $ECHO "\n**** zstd round-trip tests **** "
 
+date
 roundTripTest
+date
 roundTripTest -g15K       # TableID==3
+date
 roundTripTest -g127K      # TableID==2
+date
 roundTripTest -g255K      # TableID==1
+date
 roundTripTest -g522K      # TableID==0
+date
 roundTripTest -g519K 6    # greedy, hash chain
+date
 roundTripTest -g517K 16   # btlazy2
+date
 roundTripTest -g516K 19   # btopt
+date
 
+date
 fileRoundTripTest -g500K
+date
 
+display_time
 $ECHO "\n**** zstd long distance matching round-trip tests **** "
+date
 roundTripTest -g0 "2 --long"
+date
 roundTripTest -g1000K "1 --long"
+date
 roundTripTest -g517K "6 --long"
+date
 roundTripTest -g516K "16 --long"
+date
 roundTripTest -g518K "19 --long"
+date
 fileRoundTripTest -g5M "3 --long"
+date
 
 
 if [ -n "$hasMT" ]
@@ -639,14 +670,23 @@ $ZSTD -lv tmp1.zst
 rm tmp*
 
 
+display_time
 $ECHO "\n**** zstd long distance matching tests **** "
+date
 roundTripTest -g0 " --long"
+date
 roundTripTest -g9M "2 --long"
+date
 # Test parameter parsing
+date
 roundTripTest -g1M -P50 "1 --long=29" " --memory=512MB"
+date
 roundTripTest -g1M -P50 "1 --long=29 --zstd=wlog=28" " --memory=256MB"
+date
 roundTripTest -g1M -P50 "1 --long=29" " --long=28 --memory=512MB"
+date
 roundTripTest -g1M -P50 "1 --long=29" " --zstd=wlog=28 --memory=512MB"
+date
 
 
 if [ "$1" != "--test-large-data" ]; then
@@ -654,55 +694,98 @@ if [ "$1" != "--test-large-data" ]; then
     exit 0
 fi
 
+display_time
 $ECHO "\n**** large files tests **** "
 
+date
 roundTripTest -g270000000 1
+date
 roundTripTest -g250000000 2
+date
 roundTripTest -g230000000 3
+date
 
+date
 roundTripTest -g140000000 -P60 4
+date
 roundTripTest -g130000000 -P62 5
+date
 roundTripTest -g120000000 -P65 6
+date
 
+date
 roundTripTest -g70000000 -P70 7
+date
 roundTripTest -g60000000 -P71 8
+date
 roundTripTest -g50000000 -P73 9
+date
 
+date
 roundTripTest -g35000000 -P75 10
+date
 roundTripTest -g30000000 -P76 11
+date
 roundTripTest -g25000000 -P78 12
+date
 
+date
 roundTripTest -g18000013 -P80 13
+date
 roundTripTest -g18000014 -P80 14
+date
 roundTripTest -g18000015 -P81 15
+date
 roundTripTest -g18000016 -P84 16
+date
 roundTripTest -g18000017 -P88 17
+date
 roundTripTest -g18000018 -P94 18
+date
 roundTripTest -g18000019 -P96 19
+date
 
+date
 roundTripTest -g5000000000 -P99 1
+date
 
+date
 fileRoundTripTest -g4193M -P99 1
+date
 
 
 $ECHO "\n**** zstd long, long distance matching round-trip tests **** "
+date
 roundTripTest -g270000000 "1 --long"
+date
 roundTripTest -g130000000 -P60 "5 --long"
+date
 roundTripTest -g35000000 -P70 "8 --long"
+date
 roundTripTest -g18000001 -P80  "18 --long"
+date
 # Test large window logs
 roundTripTest -g700M -P50 "1 --long=29"
+date
 roundTripTest -g600M -P50 "1 --long --zstd=wlog=29,clog=28"
+date
 
 
+display_time
 if [ -n "$hasMT" ]
 then
     $ECHO "\n**** zstdmt long round-trip tests **** "
+    date
     roundTripTest -g80000000 -P99 "19 -T2" " "
+    date
     roundTripTest -g5000000000 -P99 "1 -T2" " "
+    date
     roundTripTest -g500000000 -P97 "1 -T999" " "
+    date
     fileRoundTripTest -g4103M -P98 " -T0" " "
+    date
     roundTripTest -g400000000 -P97 "1 --long=24 -T2" " "
+    date
 else
     $ECHO "\n**** no multithreading, skipping zstdmt tests **** "
 fi
