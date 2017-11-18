@@ -40,10 +40,12 @@ extern "C" {
 ***************************************/
 #if defined(ZSTD_DEBUG) && (ZSTD_DEBUG>=1)
 #  include <assert.h>
+#  define kDebugLevel ZSTD_DEBUG
 #else
 #  ifndef assert
 #    define assert(condition) ((void)0)
 #  endif
+#  define kDebugLevel 0
 #endif
 
 #define ZSTD_STATIC_ASSERT(c) { enum { ZSTD_static_assert = 1/(int)(!!(c)) }; }
@@ -117,7 +119,7 @@ typedef enum { bt_raw, bt_rle, bt_compressed, bt_reserved } blockType_e;
 #define MIN_CBLOCK_SIZE (1 /*litCSize*/ + 1 /* RLE or RAW */ + MIN_SEQUENCES_SIZE /* nbSeq==0 */)   /* for a non-null block */
 
 #define HufLog 12
-typedef enum { set_basic, set_rle, set_compressed, set_repeat } symbolEncodingType_e;
+typedef enum { set_basic, set_rle, set_compressed, set_repeat, set_any } symbolEncodingType_e;
 
 #define LONGNBSEQ 0x7F00
 

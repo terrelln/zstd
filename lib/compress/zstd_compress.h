@@ -19,6 +19,7 @@
 #ifdef ZSTD_MULTITHREAD
 #  include "zstdmt_compress.h"
 #endif
+#include "block_splitter.h"
 
 #if defined (__cplusplus)
 extern "C" {
@@ -73,6 +74,7 @@ struct ZSTD_CCtx_s {
     U32* hashTable3;
     U32* chainTable;
     ZSTD_entropyCTables_t* entropy;
+    blockSplitState_t blockSplitState;
 
     /* streaming */
     char*  inBuff;

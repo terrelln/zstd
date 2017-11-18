@@ -1,38 +1,10 @@
+#define ZSTD_DEBUG 6
+
 #include "block_splitter.h"
 #include "zstd_compress.h"
-#include <math.h>
+#include "zstd_internal.h"
 #include <stdlib.h>
-
-#define ZSTD_DEBUG 6
-#if defined(ZSTD_DEBUG) && (ZSTD_DEBUG>=1)
-#  include <assert.h>
-static unsigned const kIsDebug = 1;
-#else
-#  define assert(condition) ((void)0)
-static unsigned const kIsDebug = 0;
-#endif
-
-#define ZSTD_STATIC_ASSERT(c) { enum { ZSTD_static_assert = 1/(int)(!!(c)) }; }
-
-#if defined(ZSTD_DEBUG) && (ZSTD_DEBUG >= 2)
-#include <stdio.h>
-static unsigned g_debugLevel = ZSTD_DEBUG;
-/* recommended values for ZSTD_DEBUG display levels :
- * 1 : no display, enables assert() only
- * 2 : reserved for currently active debugging path
- * 3 : events once per object lifetime (CCtx, CDict)
- * 4 : events once per frame
- * 5 : events once per block
- * 6 : events once per sequence (*very* verbose) */
-#define DEBUGLOG(l, ...)                                                       \
-    if (l <= g_debugLevel) {                                                   \
-        fprintf(stderr, __FILE__ ": ");                                        \
-        fprintf(stderr, __VA_ARGS__);                                          \
-        fprintf(stderr, " \n");                                                \
-    }
-#else
-#define DEBUGLOG(l, ...)       {} /* disabled */
-#endif
+#include <math.h>
 
 static pred_t const kEmptyPred = {-1, -1};
 
@@ -40,18 +12,27 @@ typedef enum {
     st_lit = 0, st_off, st_ml, st_ll, st_end
 } splitType_e;
 
-static double ZSTD_log2_U64(U64 const input)
+static U32 ZSTD_log2_U64(U64 const input)
 {
-  return input == 0.0 ? 0.0 : log2(input);
+  if (input == 0)
+    return 0;
+  return 63 - __builtin_clzll(input);
 }
 
-#define ZSTD_log2(input) ZSTD_log2_U64(input)
+static U32 ZSTD_log2_U32(U32 const input)
+{
+  if (input == 0)
+    return 0;
+  return 31 - __builtin_clz(input);
+}
+
+#define ZSTD_log2(input) (sizeof(input) == 4 ? ZSTD_log2_U32(input) : assert(sizeof(input) == 8), ZSTD_log2_U64(input))
 
 
 /**
  * Translate a sequence index into an offset into the symbols array.
  */
-static size_t computeOffset(size_t const seq, size_t const *const offsets,
+static size_t computeOffset(size_t const seq, U32 const *const offsets,
                             int const type)
 {
     switch (type) {
@@ -84,7 +65,7 @@ static size_t computeOffset(size_t const seq, size_t const *const offsets,
  */
 static void extendWindow(window_t* const window, size_t const idx,
                          size_t const seq, BYTE const* const symbols,
-                         size_t const *const offsets, int const type)
+                         U32 const *const offsets, int const type)
 {
     BYTE const *symbol = symbols + computeOffset(window->endSeq, offsets, type);
     BYTE const *const symbolEnd = symbols + computeOffset(seq, offsets, type);
@@ -109,7 +90,7 @@ static void extendWindow(window_t* const window, size_t const idx,
 
 static void popWindows(window_t* const windows, size_t const nbWindows,
                        size_t const seq, BYTE const* const symbols,
-                       size_t const *const offsets, int const type)
+                       U32 const *const offsets, int const type)
 {
     BYTE const *const symbolsBegin =
         symbols + computeOffset(seq, offsets, type);
@@ -154,7 +135,7 @@ static BYTE const* getSymbols(seqStore_t const* const seqStore, int const type)
 }
 
 typedef struct {
-    double cost;
+    U32 cost;
     symbolEncodingType_e type;  /* basic, compressed, rle, repeat, any */
 } cost_t;
 
@@ -162,7 +143,7 @@ typedef struct {
  * Compute the cost of a window.
  */
 static cost_t computeCost(window_t const* window, size_t const seq,
-                          size_t const *const offsets, size_t blockSwitchCost,
+                          U32 const *const offsets, size_t blockSwitchCost,
                           int const type) {
     size_t const windowBegin = computeOffset(seq, offsets, type);
     size_t const windowEnd = computeOffset(window->endSeq, offsets, type);
@@ -176,7 +157,7 @@ static cost_t computeCost(window_t const* window, size_t const seq,
     cost.type = set_compressed;
 
     assert(cost.cost > 0);
-    DEBUGLOG(7, "windowSize = %u\twindowCost = %f\n", (U32)windowSize,
+    DEBUGLOG(7, "windowSize = %u\twindowCost = %u\n", (U32)windowSize,
              cost.cost);
     return cost;
 }
@@ -203,6 +184,17 @@ static blockSplit_t constructBlockSplit(size_t const endSeq,
     return result;
 }
 
+static size_t computeBlockCostAdjustment(blockSplit_t const* const splits, size_t const nbSplits, size_t const seq)
+{
+    size_t const kMinBlockCost = 6;
+    size_t split;
+    for (split = 0; split < nbSplits; ++split) {
+        if (splits[split].end == seq)
+            return kMinBlockCost;
+    }
+    return 0;
+}
+
 /* Block splitting is a single source shortest path (SSSP) problem on a DAG.
  * Data of length N has a node for each position, labeled 0..N. Each node
  * represents a possible split point. Each node i has directed edges to every
@@ -225,7 +217,7 @@ static blockSplit_t constructBlockSplit(size_t const endSeq,
  * We can prune some edges while maintaining a (1 + eps)-approximation of the
  * optimal solution. There is a minimum fixed cost for creating a new block
  * (e.g. the block header, the tables), which we will call F. We also know that
- * no block can cost more than 128 + 3 KB to encode, which we will call M.
+ * no block can cost more than 128 KB + 3 to encode, which we will call M.
  * For each cost in the series F, F(1 + eps), F(1 + eps)^2, ..., M, we will
  * maintain the first edge that costs no less than the series cost. Call the
  * maximum number of edges per node W. This guarantees a (1 + eps)-approximation
@@ -247,32 +239,34 @@ static blockSplit_t constructBlockSplit(size_t const endSeq,
  */
 /* Template emulated for literals */
 /* literals have offsets non-null */
-FORCE_INLINE
-size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
+FORCE_INLINE_TEMPLATE
+size_t ZSTD_blockSplit_internal(seqStore_t const* const seqStore,
+                                blockSplitState_t* const bs,
                                 blockSplit_t* const splits,
                                 size_t const maxNbSplits,
+                                size_t const nbExistingSplits,
                                 size_t const blockSwitchCost,
                                 size_t const maxCost,
-                                size_t const* const offsets,
+                                U32 const* const offsets,
                                 int const type) {
-    seqStore_t const *const seqStore = &zc->seqStore;
     size_t const nbSeq = seqStore->sequences - seqStore->sequencesStart;
     size_t const stepSize = computeStepSize(nbSeq, maxNbSplits);
     size_t const nbSplits = nbSeq / stepSize;
-    size_t const nbWindows = zc->nbBlockSplitWindows;
-    double const epsilon = computeEpsilon(nbWindows, blockSwitchCost, maxCost);
-    window_t *const windows = zc->blockSplitWindows;
-    pred_t *const pred = zc->blockSplitPred;
-    double *const minCost = zc->blockSplitMinCost;
+    size_t const nbWindows = bs->nbWindows;
+    window_t *const windows = bs->windows;
+    pred_t *const pred = bs->pred;
+    U32 *const minCost = bs->minCost;
     BYTE const *const symbols = getSymbols(seqStore, type);
     size_t idx;
     size_t seq;
 
     memset(windows, 0, nbWindows * sizeof(*windows));
     {
+        double const epsilon =
+            computeEpsilon(nbWindows, blockSwitchCost, maxCost);
         double windowMaxCost = blockSwitchCost;
         for (idx = 0; idx < nbWindows; ++idx) {
-            windows[idx].maxCost = windowMaxCost;
+            windows[idx].maxCost = (U32)windowMaxCost;
             windowMaxCost *= 1 + epsilon;
         }
         assert(windowMaxCost >= maxCost - 1);
@@ -281,7 +275,7 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
     // Initialize minCost
     minCost[0] = 0.0;
     for (idx = 1; idx < nbSplits; ++idx) {
-        minCost[idx] = INFINITY;
+        minCost[idx] = (U32)-1;
     }
     if (kIsDebug) {
       memset(pred, -1, nbSplits *sizeof(blockSplit_t));
@@ -292,11 +286,13 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
      */
     // TODO: Figure out end codition for seq not divisible by stepSize.
     for (idx = 0, seq = 0; idx < nbSplits; ++idx, seq += stepSize) {
+        size_t const blockCostAdjustment =
+            computeBlockCostAdjustment(bs->splits, nbExistingSplits, seq);
         size_t lastIdxEnd = idx + 1;
         size_t lastSeqEnd = seq + 1;
         size_t windowIndex;
 
-        assert(minCost[idx] != INFINITY);
+        assert(minCost[idx] != (U32)-1);
         assert(seq < nbSeq);
 
         for (windowIndex = 0; windowIndex < nbWindows; ++windowIndex) {
@@ -316,7 +312,9 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
             }
 
             for (;;) {
-                cost_t const cost = computeCost(window, seq, offsets, type);
+                cost_t const cost =
+                    computeCost(window, seq, offsets,
+                                blockSwitchCost - blockCostAdjustment, type);
                 /* If this split is the minimum cost to get to window->endIdx
                  * so far save it.
                  */
@@ -341,7 +339,7 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
                 /* If the window reached its maximum cost stop. */
                 if (cost.cost > window->maxCost)
                     break;
-                DEBUGLOG(7, "windows[%u].cost = %f\n", (U32)windowIndex,
+                DEBUGLOG(7, "windows[%u].cost = %u\n", (U32)windowIndex,
                          cost.cost);
                 /* Extend this window by one idx (stepSize seqs). */
                 extendWindow(window, window->endIdx + 1,
@@ -351,7 +349,7 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
 
             DEBUGLOG(
                 6, "windowIndex %u\twindowSeqSize %u\twindowCost "
-                   "%f\twindowMaxCost %f\n",
+                   "%u\twindowMaxCost %u\n",
                 (U32)windowIndex, (U32)(window->endSeq - seq),
                 computeCost(window, seq, offsets, blockSwitchCost, type).cost,
                 window->maxCost);
@@ -371,7 +369,7 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
         /* Compute the length of the best path */
         for (idx = nbSplits - 1; idx != 0; idx = pred[idx].idx) {
             assert(idx < nbSplits);
-            assert(minCost[idx] != INFINITY);
+            assert(minCost[idx] != (U32)-1);
             assert(pred[idx].idx != (U32)-1 &&
                    pred[idx].mode != (symbolEncodingType_e)-1);
             ++nbPartitions;
@@ -388,9 +386,9 @@ size_t ZSTD_blockSplit_internal(ZSTD_CCtx const* const zc,
     }
 }
 
-size_t const* initOffsets(size_t* const offsets, seqDef* const sequences,
-                          size_t const nbSeq, size_t const litLength,
-                          int const type)
+U32 const* initOffsets(U32* const offsets, seqDef const* const sequences,
+                       size_t const nbSeq, size_t const litLength,
+                       int const type)
 {
     size_t seq;
 
@@ -413,11 +411,12 @@ size_t const* initOffsets(size_t* const offsets, seqDef* const sequences,
  */
 static size_t computeBlockSwitchCost(int const type)
 {
+    size_t const kMaxBlockCost = 12;
     switch (type) {
-    case st_lit: return (size_t)80 << 3;
-    case st_off: return assert(0 && "TODO"), (size_t)80 << 3;
-    case st_ml:  return assert(0 && "TODO"), (size_t)80 << 3;
-    case st_ll:  return assert(0 && "TODO"), (size_t)80 << 3;
+    case st_lit: return kMaxBlockCost + ((size_t)80 << 3);
+    case st_off: return kMaxBlockCost + (assert(0 && "TODO"), (size_t)80 << 3);
+    case st_ml:  return kMaxBlockCost + (assert(0 && "TODO"), (size_t)80 << 3);
+    case st_ll:  return kMaxBlockCost + (assert(0 && "TODO"), (size_t)80 << 3);
     default:     return assert(0), 0;
     }
 }
@@ -442,7 +441,7 @@ static size_t computeMaxCost(ZSTD_CCtx const* const zc, int const type)
     }
 }
 
-int compareSplits(void const* lp, void const* rp)
+static int compareSplits(void const* lp, void const* rp)
 {
     blockSplit_t const* const lhs = (blockSplit_t const*)lp;
     blockSplit_t const* const rhs = (blockSplit_t const*)rp;
@@ -455,22 +454,59 @@ int compareSplits(void const* lp, void const* rp)
     return 0;
 }
 
-size_t ZSTD_blockSplit(ZSTD_CCtx const* const zc, blockSplit_t* splits)
+static int getType(blockSplit_t const split)
 {
+    int type;
+    for (type = 0; type < 4; ++type)
+        if (split.modes[type] != set_repeat)
+            return type;
+    return assert(0), 0;
+}
+
+static size_t mergeSplits(blockSplit_t* const splits, size_t const nbSplits)
+{
+    blockSplit_t* const endSplit = splits + nbSplits;
+    blockSplit_t* outSplit = splits;
+    blockSplit_t* inSplit = splits;
+
+    while (++inSplit != endSplit) {
+      if (outSplit->end == inSplit->end) {
+          int const type = getType(*inSplit);
+          assert(outSplit->modes[type] == set_repeat);
+          outSplit->modes[type] = inSplit->modes[type];
+      } else if (++outSplit != inSplit) {
+        *outSplit = *inSplit;
+      }
+    }
+    return (outSplit - splits) + 1;
+}
+
+size_t ZSTD_blockSplit(ZSTD_CCtx* const zc)
+{
+    blockSplitState_t* const bs = &zc->blockSplitState;
+    blockSplit_t* const splits = bs->splits;
+    seqStore_t const* const seqStore = &zc->seqStore;
+    seqDef const* const seqs = seqStore->sequencesStart;
+    size_t const nbSeq = seqStore->sequences - seqStore->sequencesStart;
+    size_t const litLength = seqStore->lit - seqStore->litStart;
     size_t nbSplits = 0;
     int type;
 
+    // TODO: Maybe the order matters here, because we incorperate the existing
+    // blocks. If literals get the biggest gain, maybe they should go last, or
+    // first.
     for (type = st_lit; type < st_end; ++type) {
-        size_t const* const offsets = initOffsets(zc->blockSplitOffsets, type);
+        U32 const* const offsets = initOffsets(bs->offsets, seqs, nbSeq,
+                                               litLength, type);
         size_t const blockSwitchCost = computeBlockSwitchCost(type);
         size_t const maxCost = computeMaxCost(zc, type);
         // TODO: Check that we don't overrun splits...
         nbSplits += ZSTD_blockSplit_internal(
-            zc, splits + nbSplits, zc->maxNbBlockSplits,
+            seqStore, bs, splits + nbSplits, bs->maxNbSplits, nbSplits,
             blockSwitchCost, maxCost, offsets, type);
     }
     qsort(splits, nbSplits, sizeof(blockSplit_t), compareSplits);
-    // TODO: We have to join blocks that split at exactly the same sequence.
+    nbSplits = mergeSplits(splits, nbSplits);
     if (kIsDebug) {
         size_t split;
 
@@ -482,7 +518,28 @@ size_t ZSTD_blockSplit(ZSTD_CCtx const* const zc, blockSplit_t* splits)
     // TODO: Attempt to join blocks that are very close together.
     //       To do that we need to find out the smallest legit block size we
     //       want to allow, and join blocks smaller than that.
+    // Maybe not? If we can incorperate the cost into the algorithm...
+    // Make splitting at block boundaries very attractive?
     return nbSplits;
+}
+
+size_t ZSTD_sizeof_blockSplitState(size_t maxNbSeq)
+{
+  blockSplitState_t state;
+  return (size_t)ZSTD_blockSplitState_init(&state, NULL, maxNbSeq);
+}
+
+void* ZSTD_blockSplitState_init(blockSplitState_t* state, void* const ptr, size_t maxNbSeq)
+{
+  size_t const kNbWindows = 100;
+  size_t const kMaxNbSplits = 10000;
+
+  state->windows = (window_t*)ptr;
+  state->splits = (blockSplit_t*)(state->windows + kNbWindows);
+  state->pred = (pred_t*)(state->splits + kMaxNbSplits);
+  state->offsets = (U32*)(state->pred + maxNbSeq);
+  state->minCost = (U32*)(state->offsets + maxNbSeq);
+  return state->minCost + maxNbSeq;
 }
 
 #if 0
