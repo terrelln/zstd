@@ -8,10 +8,6 @@
 
 static pred_t const kEmptyPred = {-1, -1};
 
-typedef enum {
-    st_lit = 0, st_off, st_ml, st_ll, st_end
-} splitType_e;
-
 static U32 ZSTD_log2_U64(U64 const input)
 {
   if (input == 0)
@@ -277,7 +273,7 @@ size_t ZSTD_blockSplit_internal(seqStore_t const* const seqStore,
     for (idx = 1; idx < nbSplits; ++idx) {
         minCost[idx] = (U32)-1;
     }
-    if (kIsDebug) {
+    if (ZSTD_DEBUG) {
       memset(pred, -1, nbSplits *sizeof(blockSplit_t));
     }
     /**
@@ -468,7 +464,7 @@ static size_t mergeSplits(blockSplit_t* const splits, size_t const nbSplits)
     blockSplit_t* const endSplit = splits + nbSplits;
     blockSplit_t* outSplit = splits;
     blockSplit_t* inSplit = splits;
-
+    /* Merge equal splits */
     while (++inSplit != endSplit) {
       if (outSplit->end == inSplit->end) {
           int const type = getType(*inSplit);
@@ -478,7 +474,41 @@ static size_t mergeSplits(blockSplit_t* const splits, size_t const nbSplits)
         *outSplit = *inSplit;
       }
     }
+    /* Merge repeats */
     return (outSplit - splits) + 1;
+}
+
+static blockSplit_t const* getFirstSplit(blockSplit_t const* splits,
+                                         size_t const nbSplits,
+                                         splitType_e type)
+{
+    blockSplit_t const* const end = splits + nbSplits;
+    while (splits < end && splits->modes[type] == set_repeat)
+        ++splits;
+    return splits < end ? splits : NULL;
+}
+
+size_t ZSTD_getNbSeqInChunk(blockSplit_t const* splits, size_t const nbSplits,
+                            splitType_e type)
+{
+    blockSplit_t const* const end = splits + nbSplits;
+    size_t nbSeq = splits->end;
+    while (++splits < end && splits->modes[type] == set_repeat) {
+        nbSeq += splits->end;
+    }
+    return nbSeq;
+}
+
+size_t ZSTD_getNbSeqInBlock(blockSplit_t const* split)
+{
+    return split->end;
+}
+
+symbolEncodingType_e ZSTD_getBlockMode(blockSplit_t const* split,
+                                       splitType_e type)
+{
+
+    return split->modes[type];
 }
 
 size_t ZSTD_blockSplit(ZSTD_CCtx* const zc)
@@ -495,7 +525,8 @@ size_t ZSTD_blockSplit(ZSTD_CCtx* const zc)
     // TODO: Maybe the order matters here, because we incorperate the existing
     // blocks. If literals get the biggest gain, maybe they should go last, or
     // first.
-    for (type = st_lit; type < st_end; ++type) {
+    for (type = st_lit; type <= st_lit; ++type) {
+    // for (type = st_lit; type < st_end; ++type) {
         U32 const* const offsets = initOffsets(bs->offsets, seqs, nbSeq,
                                                litLength, type);
         size_t const blockSwitchCost = computeBlockSwitchCost(type);
@@ -505,9 +536,12 @@ size_t ZSTD_blockSplit(ZSTD_CCtx* const zc)
             seqStore, bs, splits + nbSplits, bs->maxNbSplits, nbSplits,
             blockSwitchCost, maxCost, offsets, type);
     }
-    qsort(splits, nbSplits, sizeof(blockSplit_t), compareSplits);
-    nbSplits = mergeSplits(splits, nbSplits);
-    if (kIsDebug) {
+    // qsort(splits, nbSplits, sizeof(blockSplit_t), compareSplits);
+    // nbSplits = mergeSplits(splits, nbSplits);
+    for (type = st_lit + 1; type < st_end; ++type) {
+        splits[0].modes[type] = set_any;
+    }
+    if (ZSTD_DEBUG) {
         size_t split;
 
         assert(splits[0].end > 0);

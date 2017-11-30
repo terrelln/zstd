@@ -21,7 +21,7 @@ typedef enum {
  * make sure to compute the stats over all the repeated blocks.
  */
 typedef struct {
-    U32 end;      /* once sequence past the end */
+    U32 end;      /* Number of sequences in the block */
     char modes[4]; /* lit, ml, ll, of: basic, compressed, rle, repeat, any */
 } blockSplit_t;
 
@@ -59,5 +59,11 @@ void* ZSTD_blockSplitState_init(blockSplitState_t *state, void *ptr,
  * Returns #splits or an error code
  */
 size_t ZSTD_blockSplit(ZSTD_CCtx* zc);
+
+size_t ZSTD_getNbSeqInChunk(blockSplit_t const* splits, size_t const nbSplits,
+                            splitType_e type);
+size_t ZSTD_getNbSeqInBlock(blockSplit_t const* split);
+symbolEncodingType_e ZSTD_getBlockMode(blockSplit_t const* split,
+                                       splitType_e type);
 
 #endif /* BLOCK_SPLITTER_H */
