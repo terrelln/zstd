@@ -1,5 +1,3 @@
-#define ZSTD_DEBUG 6
-
 #include "block_splitter.h"
 #include "zstd_compress.h"
 #include "zstd_internal.h"
@@ -273,7 +271,7 @@ size_t ZSTD_blockSplit_internal(seqStore_t const* const seqStore,
     for (idx = 1; idx < nbSplits; ++idx) {
         minCost[idx] = (U32)-1;
     }
-    if (ZSTD_DEBUG) {
+    if (kDebugLevel) {
       memset(pred, -1, nbSplits *sizeof(blockSplit_t));
     }
     /**
@@ -541,7 +539,7 @@ size_t ZSTD_blockSplit(ZSTD_CCtx* const zc)
     for (type = st_lit + 1; type < st_end; ++type) {
         splits[0].modes[type] = set_any;
     }
-    if (ZSTD_DEBUG) {
+    if (kDebugLevel) {
         size_t split;
 
         assert(splits[0].end > 0);
