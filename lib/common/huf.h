@@ -295,6 +295,14 @@ size_t HUF_decompress1X_usingDTable(void* dst, size_t maxDstSize, const void* cS
 size_t HUF_decompress1X2_usingDTable(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
 size_t HUF_decompress1X4_usingDTable(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable);
 
+/* BMI2 variants.
+ * Must only be called when the CPU has BMI2 support.
+ */
+size_t HUF_decompress1X_usingDTable_bmi2(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable, int bmi2);   /**< automatic selection of sing or double symbol decoder, based on DTable */
+size_t HUF_decompress1X2_DCtx_wksp_bmi2(HUF_DTable* dctx, void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize, void* workSpace, size_t wkspSize, int bmi2);   /**< single-symbol decoder */
+size_t HUF_decompress4X_usingDTable_bmi2(void* dst, size_t maxDstSize, const void* cSrc, size_t cSrcSize, const HUF_DTable* DTable, int bmi2);
+size_t HUF_decompress4X_hufOnly_wksp_bmi2(HUF_DTable* dctx, void* dst, size_t dstSize, const void* cSrc, size_t cSrcSize, void* workSpace, size_t wkspSize, int bmi2); /**< considers RLE and uncompressed as errors */
+
 #endif /* HUF_STATIC_LINKING_ONLY */
 
 #if defined (__cplusplus)
