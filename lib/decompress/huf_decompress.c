@@ -154,11 +154,25 @@ typedef struct { U16 sequence; BYTE nbBits; BYTE length; } HUF_DEltX4;  /* doubl
 
 #if DYNAMIC_BMI2
 
-#define FUNCTION_NAME(fn) fn##_bmi2
-#define TARGET TARGET_ATTRIBUTE("bmi2")
-#include "huf_decompress_impl.h"
-#undef TARGET
-#undef FUNCTION_NAME
+// #define FUNCTION_NAME(fn) fn##_bmi2
+// #define TARGET TARGET_ATTRIBUTE("bmi2")
+// #include "huf_decompress_impl.h"
+// #undef TARGET
+// #undef FUNCTION_NAME
+
+#define X(fn)                                                                  \
+  static TARGET_ATTRIBUTE("bmi2")                                              \
+      size_t fn##_bmi2(void *dst, size_t dstSize, const void *cSrc,            \
+                       size_t cSrcSize, const HUF_DTable *DTable) {            \
+    return fn##_default(dst, dstSize, cSrc, cSrcSize, DTable);                 \
+  }
+
+X(HUF_decompress1X2_usingDTable_internal)
+X(HUF_decompress4X2_usingDTable_internal)
+X(HUF_decompress1X4_usingDTable_internal)
+X(HUF_decompress4X4_usingDTable_internal)
+
+#undef X
 
 #endif
 

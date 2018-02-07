@@ -1055,11 +1055,27 @@ typedef enum { ZSTD_lo_isRegularOffset, ZSTD_lo_isLongOffset=1 } ZSTD_longOffset
 
 #if DYNAMIC_BMI2
 
-#define FUNCTION_NAME(fn) fn##_bmi2
-#define TARGET TARGET_ATTRIBUTE("bmi2")
-#include "zstd_decompress_impl.h"
-#undef TARGET
-#undef FUNCTION_NAME
+// #define FUNCTION_NAME(fn) fn##_bmi2
+// #define TARGET TARGET_ATTRIBUTE("bmi2")
+// #include "zstd_decompress_impl.h"
+// #undef TARGET
+// #undef FUNCTION_NAME
+
+static TARGET_ATTRIBUTE("bmi2") size_t
+ZSTD_decompressSequences_bmi2(ZSTD_DCtx *dctx, void *dst, size_t maxDstSize,
+                              const void *seqStart, size_t seqSize,
+                              const ZSTD_longOffset_e isLongOffset) {
+    return ZSTD_decompressSequences_default(dctx, dst, maxDstSize, seqStart,
+                                            seqSize, isLongOffset);
+}
+
+static TARGET_ATTRIBUTE("bmi2") size_t
+ZSTD_decompressSequencesLong_bmi2(ZSTD_DCtx *dctx, void *dst, size_t maxDstSize,
+                                  const void *seqStart, size_t seqSize,
+                                  const ZSTD_longOffset_e isLongOffset) {
+    return ZSTD_decompressSequencesLong_default(dctx, dst, maxDstSize, seqStart,
+                                                seqSize, isLongOffset);
+}
 
 #endif
 
