@@ -790,9 +790,20 @@ ZSTD_frameProgression ZSTDMT_getFrameProgression(ZSTDMT_CCtx* mtctx)
 /* =====   Multi-threaded compression   ===== */
 /* ------------------------------------------ */
 
-static unsigned ZSTDMT_computeNbJobs(size_t srcSize, unsigned windowLog, unsigned nbWorkers) {
+static size_t ZSTDMT_computeTargetJobSize(ZSTD_CCtx_params const params)
+{
+    return params.cParams.windowLog + 2;
+}
+
+static size_t ZSTDMT_computeOverlapSize(ZSTD_CCtx_params const params)
+{
+    unsigned const overlapRLog = (params.overlapSizeLog>9) ? 0 : 9-params.overlapSizeLog;
+    return overlapRLog >= 9 ? 0 : (size_t)1 << (params.cParams.windowLog - overlapRLog);
+}
+
+static unsigned ZSTDMT_computeNbJobs(ZSTD_CCtx_params params, size_t srcSize, unsigned nbWorkers) {
     assert(nbWorkers>0);
-    {   size_t const jobSizeTarget = (size_t)1 << (windowLog + 2);
+    {   size_t const jobSizeTarget = ZSTDMT_computeTargetJobSize(params);
         size_t const jobMaxSize = jobSizeTarget << 2;
         size_t const passSizeMax = jobMaxSize * nbWorkers;
         unsigned const multiplier = (unsigned)(srcSize / passSizeMax) + 1;
@@ -813,9 +824,8 @@ static size_t ZSTDMT_compress_advanced_internal(
                 ZSTD_CCtx_params const params)
 {
     ZSTD_CCtx_params const jobParams = ZSTDMT_initJobCCtxParams(params);
-    unsigned const overlapRLog = (params.overlapSizeLog>9) ? 0 : 9-params.overlapSizeLog;
-    size_t const overlapSize = (overlapRLog>=9) ? 0 : (size_t)1 << (params.cParams.windowLog - overlapRLog);
-    unsigned const nbJobs = ZSTDMT_computeNbJobs(srcSize, params.cParams.windowLog, params.nbWorkers);
+    size_t const overlapSize = ZSTDMT_computeOverlapSize(params);
+    unsigned const nbJobs = ZSTDMT_computeNbJobs(params, srcSize, params.nbWorkers);
     size_t const proposedJobSize = (srcSize + (nbJobs-1)) / nbJobs;
     size_t const avgJobSize = (((proposedJobSize-1) & 0x1FFFF) < 0x7FFF) ? proposedJobSize + 0xFFFF : proposedJobSize;   /* avoid too small last block */
     const char* const srcStart = (const char*)src;
@@ -980,7 +990,7 @@ size_t ZSTDMT_initCStream_internal(
         if (params.cParams.windowLog >= 29)
             params.jobSize = ZSTDMT_JOBSIZE_MAX;
         else
-            params.jobSize = 1 << (params.cParams.windowLog + 2);
+            params.jobSize = ZSTDMT_computeTargetJobSize(params);
     }
     if (params.jobSize > ZSTDMT_JOBSIZE_MAX) params.jobSize = ZSTDMT_JOBSIZE_MAX;
 
@@ -1017,8 +1027,7 @@ size_t ZSTDMT_initCStream_internal(
         mtctx->cdict = cdict;
     }
 
-    assert(params.overlapSizeLog <= 9);
-    mtctx->targetPrefixSize = (params.overlapSizeLog==0) ? 0 : (size_t)1 << (params.cParams.windowLog - (9 - params.overlapSizeLog));
+    mtctx->targetPrefixSize = ZSTDMT_computeOverlapSize(params);
     DEBUGLOG(4, "overlapLog=%u => %u KB", params.overlapSizeLog, (U32)(mtctx->targetPrefixSize>>10));
     mtctx->targetSectionSize = params.jobSize;
     if (mtctx->targetSectionSize < ZSTDMT_JOBSIZE_MIN) mtctx->targetSectionSize = ZSTDMT_JOBSIZE_MIN;
