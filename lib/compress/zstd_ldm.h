@@ -38,8 +38,7 @@ extern "C" {
  */
 size_t ZSTD_ldm_generateSequences(
         ldmState_t* ldms, rawSeq* sequences,
-        ldmParams_t const* params, void const* src, size_t srcSize,
-        int const extDict);
+        ldmParams_t const* params, void const* src, size_t srcSize);
 
 /**
  * ZSTD_ldm_blockCompress():

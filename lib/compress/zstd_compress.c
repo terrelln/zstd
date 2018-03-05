@@ -909,6 +909,8 @@ static size_t ZSTD_continueCCtx(ZSTD_CCtx* cctx, ZSTD_CCtx_params params, U64 pl
         (U32)pledgedSrcSize, cctx->appliedParams.fParams.contentSizeFlag);
     cctx->stage = ZSTDcs_init;
     cctx->dictID = 0;
+    if (params.ldmParams.enableLdm)
+        ZSTD_window_clear(&cctx->ldmState.window);
     ZSTD_invalidateMatchState(&cctx->blockState.matchState);
     ZSTD_reset_compressedBlockState(cctx->blockState.prevCBlock);
     XXH64_reset(&cctx->xxhState, 0);
@@ -1092,6 +1094,7 @@ static size_t ZSTD_resetCCtx_internal(ZSTD_CCtx* zc,
             memset(ptr, 0, ldmBucketSize);
             zc->ldmState.bucketOffsets = (BYTE*)ptr;
             ptr = zc->ldmState.bucketOffsets + ldmBucketSize;
+            ZSTD_window_clear(&zc->ldmState.window);
         }
 
         /* buffers */
@@ -1818,7 +1821,7 @@ static size_t ZSTD_compressBlock_internal(ZSTD_CCtx* zc,
             size_t const nbSeq =
                 ZSTD_ldm_generateSequences(&zc->ldmState, zc->ldmSequences,
                                            &zc->appliedParams.ldmParams,
-                                           src, srcSize, extDict);
+                                           src, srcSize);
             lastLLSize =
                 ZSTD_ldm_blockCompress(zc->ldmSequences, nbSeq,
                                        ms, &zc->seqStore,

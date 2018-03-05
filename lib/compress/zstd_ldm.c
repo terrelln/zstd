@@ -467,9 +467,9 @@ static void ZSTD_ldm_reduceTable(ldmEntry_t* const table, U32 const size,
 
 size_t ZSTD_ldm_generateSequences(
         ldmState_t* ldmState, rawSeq* sequences,
-        ldmParams_t const* params, void const* src, size_t srcSize,
-        int const extDict)
+        ldmParams_t const* params, void const* src, size_t srcSize)
 {
+    int const extDict = ZSTD_window_hasExtDict(ldmState->window);
     U32 const maxDist = 1U << params->windowLog;
     BYTE const* const istart = (BYTE const*)src;
     size_t const kMaxChunkSize = 1 << 20;
