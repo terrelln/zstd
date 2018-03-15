@@ -1,0 +1,4 @@
+{
+  "phabricator.uri": "https://phabricator.intern.facebook.com/",
+  "base": "git:HEAD^"
+}
