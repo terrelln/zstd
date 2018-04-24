@@ -1503,6 +1503,7 @@ static unsigned long long FIO_decompressLz4Frame(dRess_t* ress,
 
             if (!nextToLoad) break;
         }
+        if (decodingError) break;
     }
     /* can be out because readSize == 0, which could be an fread() error */
     if (ferror(srcFile)) {
