@@ -91,9 +91,9 @@ workflows:
       #         only: /.*/
       - wait-for-publish-approval:
           type: approval
-          requires:
-            - test0
-            - test1
+          # requires:
+          #   - test0
+          #   - test1
       - publish-github-release:
           requires:
             - wait-for-publish-approval
