@@ -68,10 +68,10 @@ jobs:
             mkdir -p $CIRCLE_ARTIFACTS
             cp $ZSTD_VERSION.tar.gz{,.sha256sum} $CIRCLE_ARTIFACTS
             if [ ! -z $GITHUB_TOKEN ]; then
-              ghr --help
-              ghr --token $GITHUB_TOKEN \
-                  --repository $CIRCLE_PROJECT_REPONAME \
-                  --username $CIRCLE_PROJECT_USERNAME
+              ghr -token $GITHUB_TOKEN \
+                  -repository $CIRCLE_PROJECT_REPONAME \
+                  -username $CIRCLE_PROJECT_USERNAME
+                  -replace
                   $CIRCLE_TAG $CIRCLE_ARTIFACTS
             fi
       - store_artifacts:
