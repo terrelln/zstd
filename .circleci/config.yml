@@ -55,7 +55,7 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            apk add install make gcc
+            apk add make gcc
       - run:
           name: Publish
           command: |
