@@ -55,16 +55,13 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            apk add -q make gcc glibc
+            apk add -q make gzip
       - run:
           name: Publish
           command: |
-            make zstd
-            export VERSON=zstd-$CIRCLE_TAG;
-            git archive --prefix="$VERSION" --format=tar -o zstd-source.tar;
-            ./zstd -19 zstd-source.tar;
-            sha256sum zstd-source.tar.zst > zstd-source.tar.zst.sha256sum;
-            cp zstd-source-tar.zst{,.sha256sum} "$CIRCLE_ARTIFACTS";
+            gzip -9 zstd-source.tar;
+            sha256sum zstd-source.tar.gz > zstd-source.tar.gz.sha256sum;
+            cp zstd-source-tar.gz{,.sha256sum} "$CIRCLE_ARTIFACTS";
             if [ ! -z $GITHUB_TOKEN ]; then;
               ghr --token "$GITHUB_TOKEN" \
                   --repository "$CIRCLE_PROJECT_REPONAME" \
