@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  build0:
     # TODO: We could use our own docker image that comes with all our
     # dependencies preinstalled.
     docker:
@@ -44,12 +44,11 @@ jobs:
           echo Publishing release to $CIRCLE_ARTIFACTS
       - store_artifacts:
           path: /tmp/circleci-artifacts
-
 workflows:
   version: 2
-  main:
+  build-test-publish:
     jobs:
-      - build
+      - build0
       - test0:
         requires:
           - build
