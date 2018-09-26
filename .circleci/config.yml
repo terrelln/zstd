@@ -52,27 +52,40 @@ jobs:
       CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
     steps:
       - checkout
-      - run: |
-          echo Publishing release to $CIRCLE_ARTIFACTS
+      - run:
+          name: Publish
+          command: |
+            make zstd;
+            export VERSON=zstd-$CIRCLE_TAG;
+            git archive --prefix="$VERSION" --format=tar -o zstd-source.tar;
+            ./zstd -19 zstd-source.tar;
+            sha256sum zstd-source.tar.zst > zstd-source.tar.zst.sha256sum;
+            cp zstd-source-tar.zst{,.sha256sum} "$CIRCLE_ARTIFACTS";
+            if [ ! -z $GITHUB_TOKEN ]; then;
+              ghr --token "$GITHUB_TOKEN" \
+                  --repository "$CIRCLE_PROJECT_REPONAME" \
+                  --username "$CIRCLE_PROJECT_USERNAME"
+                  "$VERSION" "$CIRCLE_ARTIFACTS";
+            fi;
       - store_artifacts:
           path: /tmp/circleci-artifacts
 
 workflows:
   version: 2
-  build-test-publish:
+  commit:
     jobs:
-      - test0:
-          filters:
-            tags:
-              only: /.*/
-      - test1:
-          filters:
-            tags:
-              only: /.*/
+      # - test0:
+      #     filters:
+      #       tags:
+      #         only: /.*/
+      # - test1:
+      #     filters:
+      #       tags:
+      #         only: /.*/
       - publish-github-release:
-          requires:
-            - test0
-            - test1
+          # requires:
+          #   - test0
+          #   - test1
           filters:
             branches:
               ignore: /.*/
