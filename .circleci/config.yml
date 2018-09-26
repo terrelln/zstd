@@ -60,7 +60,7 @@ jobs:
           name: Publish
           command: |
             export VERSON=zstd-$CIRCLE_TAG;
-            git archive --prefix="$VERSION" --format=tar -o zstd-source.tar;
+            git archive --prefix "$VERSION"/ --format tar -o zstd-source.tar;
             gzip -9 zstd-source.tar;
             sha256sum zstd-source.tar.gz > zstd-source.tar.gz.sha256sum;
             cp zstd-source-tar.kz{,.sha256sum} "$CIRCLE_ARTIFACTS";
