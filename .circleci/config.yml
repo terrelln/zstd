@@ -53,9 +53,9 @@ jobs:
     steps:
       - checkout
       - run:
-        name: Install dependencies
-        command: |
-          sudo apt-get -y install make gcc
+          name: Install dependencies
+          command: |
+            sudo apt-get -y install make gcc
       - run:
           name: Publish
           command: |
