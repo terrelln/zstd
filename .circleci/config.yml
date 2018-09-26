@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  dependencies:
     # TODO: We could use our own docker image that comes with all our
     # dependencies preinstalled.
     docker:
@@ -48,25 +48,22 @@ workflows:
   version: 2
   build-test-publish:
     jobs:
-      - build
+      - dependencies
       - test0:
-        requires:
-          - build
+          requires:
+            - dependencies
       - test1:
-        requires:
-          - build
+          requires:
+            - dependencies
       - publish-github-release:
-        # Only publish a release if all the tests pass
-        requires:
-          - test0
-          - test1
-        # Only run if we are a relase tag
-        filter:
-          branches:
-            ignore: /.*/
-          tags:
-            only: /^v\d+\.\d+\.\d+$/
-
+          requires:
+            - test0
+            - test1
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
 
   # Longer tests
     #- make -C tests test-zstd-nolegacy && make clean
