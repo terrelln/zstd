@@ -55,7 +55,7 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            sudo apt-get -y install make gcc
+            apt-get -y install make gcc
       - run:
           name: Publish
           command: |
