@@ -2,13 +2,15 @@ version: 2
 
 references:
   install-dependencies: &install-dependencies
-    run: |
-      sudo dpkg --add-architecture i386;
-      sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test;
-      sudo apt-get -y -qq update;
-      sudo apt-get -y install gcc-powerpc-linux-gnu gcc-arm-linux-gnueabi \
-                              libc6-dev-armel-cross gcc-aarch64-linux-gnu \
-                              libc6-dev-arm64-cross;
+    run:
+      name: Install dependencies
+      command: |
+        sudo dpkg --add-architecture i386;
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test;
+        sudo apt-get -y -qq update;
+        sudo apt-get -y install gcc-powerpc-linux-gnu gcc-arm-linux-gnueabi \
+                                libc6-dev-armel-cross gcc-aarch64-linux-gnu \
+                                libc6-dev-arm64-cross;
 
 jobs:
   test0:
@@ -17,28 +19,32 @@ jobs:
     steps:
       - checkout
       - *install-dependencies
-      - run: |
-          cc -v; CFLAGS="-O0 -Werror" make all && make clean;
-          make c99build     && make clean;
-          make c11build     && make clean;
-          make aarch64build && make clean;
-          make -j regressiontest && make clean;
-          make shortest     && make clean;
-          make cxxtest      && make clean;
+      - run:
+          name: Test
+          command: |
+            cc -v; CFLAGS="-O0 -Werror" make all && make clean;
+            make c99build     && make clean;
+            make c11build     && make clean;
+            make aarch64build && make clean;
+            make -j regressiontest && make clean;
+            make shortest     && make clean;
+            make cxxtest      && make clean;
   test1:
     docker:
       - image: circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37
     steps:
       - checkout
       - *install-dependencies
-      - run: |
-          make gnu90build   && make clean;
-          make gnu99build   && make clean;
-          make ppc64build   && make clean;
-          make ppcbuild     && make clean;
-          make armbuild     && make clean;
-          make -C tests test-legacy test-longmatch test-symbols && make clean;
-          make -C lib libzstd-nomt && make clean;
+      - run:
+          name: Test
+          command: |
+            make gnu90build   && make clean;
+            make gnu99build   && make clean;
+            make ppc64build   && make clean;
+            make ppcbuild     && make clean;
+            make armbuild     && make clean;
+            make -C tests test-legacy test-longmatch test-symbols && make clean;
+            make -C lib libzstd-nomt && make clean;
   publish-github-release:
     docker:
       - image: cibuilds/github:0.12.0
@@ -55,8 +61,14 @@ workflows:
   version: 2
   build-test-publish:
     jobs:
-      - test0
-      - test1
+      - test0:
+          filters:
+            tags:
+              only: /.*/
+      - test1:
+          filters:
+            tags:
+              only: /.*/
       - publish-github-release:
           requires:
             - test0
