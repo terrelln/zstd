@@ -81,24 +81,24 @@ workflows:
   version: 2
   commit:
     jobs:
-      # - test0:
-      #     filters:
-      #       tags:
-      #         only: /.*/
-      # - test1:
-      #     filters:
-      #       tags:
-      #         only: /.*/
+      - test0:
+          filters:
+            tags:
+              only: /.*/
+      - test1:
+          filters:
+            tags:
+              only: /.*/
       - wait-for-publish-approval:
+          requires:
+            - test0
+            - test1
           type: approval
           filters:
             branches:
               ignore: /.*/
             tags:
               only: /^v\d+\.\d+\.\d+$/
-          # requires:
-          #   - test0
-          #   - test1
       - publish-github-release:
           requires:
             - wait-for-publish-approval
