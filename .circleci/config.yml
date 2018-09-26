@@ -89,10 +89,14 @@ workflows:
       #     filters:
       #       tags:
       #         only: /.*/
+      - wait-for-publish-approval:
+          type: approval
+          requires:
+            - test0
+            - test1
       - publish-github-release:
-          # requires:
-          #   - test0
-          #   - test1
+          requires:
+            - wait-for-publish-approval
           filters:
             branches:
               ignore: /.*/
