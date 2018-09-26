@@ -91,6 +91,11 @@ workflows:
       #         only: /.*/
       - wait-for-publish-approval:
           type: approval
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
           # requires:
           #   - test0
           #   - test1
