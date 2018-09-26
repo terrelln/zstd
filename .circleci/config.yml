@@ -55,7 +55,7 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            apt-get -y install make gcc
+            apk add install make gcc
       - run:
           name: Publish
           command: |
