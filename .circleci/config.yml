@@ -59,9 +59,11 @@ jobs:
       - run:
           name: Publish
           command: |
+            export VERSON=zstd-$CIRCLE_TAG;
+            git archive --prefix="$VERSION" --format=tar -o zstd-source.tar;
             gzip -9 zstd-source.tar;
             sha256sum zstd-source.tar.gz > zstd-source.tar.gz.sha256sum;
-            cp zstd-source-tar.gz{,.sha256sum} "$CIRCLE_ARTIFACTS";
+            cp zstd-source-tar.kz{,.sha256sum} "$CIRCLE_ARTIFACTS";
             if [ ! -z $GITHUB_TOKEN ]; then;
               ghr --token "$GITHUB_TOKEN" \
                   --repository "$CIRCLE_PROJECT_REPONAME" \
