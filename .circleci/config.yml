@@ -64,6 +64,7 @@ jobs:
                         -o zstd-source.tar;
             gzip -9 zstd-source.tar;
             sha256sum zstd-source.tar.gz > zstd-source.tar.gz.sha256sum;
+            mkdir -p "$CIRCLE_ARTIFACTS"
             cp zstd-source.tar.gz{,.sha256sum} "$CIRCLE_ARTIFACTS";
             if [ ! -z $GITHUB_TOKEN ]; then;
               ghr --token "$GITHUB_TOKEN" \
