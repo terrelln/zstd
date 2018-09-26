@@ -1,19 +1,22 @@
 version: 2
+
+references:
+  install-dependencies: &install-dependencies
+    run: |
+      sudo dpkg --add-architecture i386;
+      sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test;
+      sudo apt-get -y -qq update;
+      sudo apt-get -y install gcc-powerpc-linux-gnu gcc-arm-linux-gnueabi \
+                              libc6-dev-armel-cross gcc-aarch64-linux-gnu \
+                              libc6-dev-arm64-cross;
+
 jobs:
-  dependencies:
-    # TODO: We could use our own docker image that comes with all our
-    # dependencies preinstalled.
-    docker:
-      - image: circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37
-    steps:
-      - checkout
-      - run: sudo dpkg --add-architecture i386
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test; sudo apt-get -y -qq update
-      - run: sudo apt-get -y install gcc-powerpc-linux-gnu gcc-arm-linux-gnueabi libc6-dev-armel-cross gcc-aarch64-linux-gnu libc6-dev-arm64-cross
   test0:
     docker:
       - image: circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37
     steps:
+      - checkout
+      - *install-dependencies
       - run: |
           cc -v; CFLAGS="-O0 -Werror" make all && make clean;
           make c99build     && make clean;
@@ -26,6 +29,8 @@ jobs:
     docker:
       - image: circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37
     steps:
+      - checkout
+      - *install-dependencies
       - run: |
           make gnu90build   && make clean;
           make gnu99build   && make clean;
@@ -40,21 +45,18 @@ jobs:
     environment:
       CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
     steps:
+      - checkout
       - run: |
           echo Publishing release to $CIRCLE_ARTIFACTS
       - store_artifacts:
           path: /tmp/circleci-artifacts
+
 workflows:
   version: 2
   build-test-publish:
     jobs:
-      - dependencies
-      - test0:
-          requires:
-            - dependencies
-      - test1:
-          requires:
-            - dependencies
+      - test0
+      - test1
       - publish-github-release:
           requires:
             - test0
