@@ -53,9 +53,13 @@ jobs:
     steps:
       - checkout
       - run:
+        name: Install dependencies
+        command: |
+          sudo apt-get -y install make gcc
+      - run:
           name: Publish
           command: |
-            make zstd;
+            make zstd
             export VERSON=zstd-$CIRCLE_TAG;
             git archive --prefix="$VERSION" --format=tar -o zstd-source.tar;
             ./zstd -19 zstd-source.tar;
