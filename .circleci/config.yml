@@ -98,9 +98,6 @@ workflows:
               only: /.*/
       # Only run on release tags.
       - publish-github-release:
-          requires:
-            - short-tests-0
-            - short-tests-1
           filters:
             branches:
               ignore: /.*/
