@@ -424,6 +424,8 @@ static FILE* FIO_openDstFile(const char* srcFileName, const char* dstFileName)
                 DISPLAYLEVEL(1, "zstd: Refusing to open a output file which will overwrite the input file \n");
                 return NULL;
             }
+        } else {
+            DISPLAYLEVEL(1, "zstd: Stat failed with message %s \n", strerror(errno));
         }
     }
 
