@@ -152,7 +152,7 @@ LIBZSTD = dll\libzstd.dll
 $(LIBZSTD): $(ZSTD_FILES)
 	@echo compiling dynamic library $(LIBVER)
 	@$(CC) $(FLAGS) -DZSTD_DLL_EXPORT=1 -shared $^ -o $@
-	dlltool -D $@ -d dll\libzstd.def -l dll\libzstd.lib
+	dlltool -D $@ -l dll\libzstd.lib
 
 else
 
