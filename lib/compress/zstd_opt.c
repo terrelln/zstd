@@ -909,7 +909,6 @@ ZSTD_compressBlock_opt_generic(ZSTD_matchState_t* ms,
                 for (matchNb = 0; matchNb < nbMatches; matchNb++) {
                     U32 const offset = matches[matchNb].off;
                     U32 const end = matches[matchNb].len;
-                    repcodes_t const repHistory = ZSTD_updateRep(rep, offset, ll0);
                     for ( ; pos <= end ; pos++ ) {
                         U32 const matchPrice = ZSTD_getMatchPrice(offset, pos, optStatePtr, optLevel);
                         U32 const sequencePrice = literalsPrice + matchPrice;
@@ -919,8 +918,6 @@ ZSTD_compressBlock_opt_generic(ZSTD_matchState_t* ms,
                         opt[pos].off = offset;
                         opt[pos].litlen = litlen;
                         opt[pos].price = sequencePrice;
-                        ZSTD_STATIC_ASSERT(sizeof(opt[pos].rep) == sizeof(repHistory));
-                        memcpy(opt[pos].rep, &repHistory, sizeof(repHistory));
                 }   }
                 last_pos = pos-1;
             }
@@ -949,6 +946,15 @@ ZSTD_compressBlock_opt_generic(ZSTD_matchState_t* ms,
                     opt[cur].price = price;
                     memcpy(opt[cur].rep, opt[cur-1].rep, sizeof(opt[cur].rep));
                 } else {
+                    // Do we have to handle opt[cur].mlen == 0? I don't think so
+                    assert(opt[cur].mlen > 0);
+                    U32 const backDist = ZSTD_totalLen(opt[cur]);
+                    U32 const prev = cur > backDist ? cur - backDist : 0;
+                    U32 const ll0 = (opt[cur].litlen == 0);
+                    repcodes_t const repHistory = ZSTD_updateRep(opt[prev].rep, opt[cur].off, ll0);
+                    ZSTD_STATIC_ASSERT(sizeof(opt[cur].rep) == sizeof(repHistory));
+                    // assert(memcmp(&repHistory, opt[cur].rep, sizeof(repHistory)) == 0);
+                    memcpy(opt[cur].rep, &repHistory, sizeof(repHistory));
                     DEBUGLOG(7, "cPos:%zi==rPos:%u : literal would cost more (%.2f>%.2f) (hist:%u,%u,%u)",
                                 inr-istart, cur, ZSTD_fCost(price), ZSTD_fCost(opt[cur].price),
                                 opt[cur].rep[0], opt[cur].rep[1], opt[cur].rep[2]);
@@ -995,7 +1001,6 @@ ZSTD_compressBlock_opt_generic(ZSTD_matchState_t* ms,
                 /* set prices using matches found at position == cur */
                 for (matchNb = 0; matchNb < nbMatches; matchNb++) {
                     U32 const offset = matches[matchNb].off;
-                    repcodes_t const repHistory = ZSTD_updateRep(opt[cur].rep, offset, ll0);
                     U32 const lastML = matches[matchNb].len;
                     U32 const startML = (matchNb>0) ? matches[matchNb-1].len+1 : minMatch;
                     U32 mlen;
@@ -1015,8 +1020,6 @@ ZSTD_compressBlock_opt_generic(ZSTD_matchState_t* ms,
                             opt[pos].off = offset;
                             opt[pos].litlen = litlen;
                             opt[pos].price = price;
-                            ZSTD_STATIC_ASSERT(sizeof(opt[pos].rep) == sizeof(repHistory));
-                            memcpy(opt[pos].rep, &repHistory, sizeof(repHistory));
                         } else {
                             DEBUGLOG(7, "rPos:%u (ml=%2u) => new price is worse (%.2f>=%.2f)",
                                         pos, mlen, ZSTD_fCost(price), ZSTD_fCost(opt[pos].price));
