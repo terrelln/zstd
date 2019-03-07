@@ -79,11 +79,19 @@ typedef struct {
 } ZSTD_match_t;
 
 typedef struct {
+  U32 off;
+  U32 mlen;
+  U32 litlen;
+} ZSTD_repSeq_t;
+
+typedef struct {
     int price;
     U32 off;
     U32 mlen;
     U32 litlen;
+    /* <= cur is rep. > cur is prev */
     U32 rep[ZSTD_REP_NUM];
+    ZSTD_repSeq_t repSeq;
 } ZSTD_optimal_t;
 
 typedef enum { zop_dynamic=0, zop_predef } ZSTD_OptPrice_e;
