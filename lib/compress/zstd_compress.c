@@ -4080,12 +4080,20 @@ size_t ZSTD_compressStream2( ZSTD_CCtx* cctx,
     if (cctx->streamStage == zcss_init) {
         ZSTD_CCtx_params params = cctx->requestedParams;
         ZSTD_prefixDict const prefixDict = cctx->prefixDict;
+        size_t dictSize;
         memset(&cctx->prefixDict, 0, sizeof(cctx->prefixDict));   /* single usage */
         assert(prefixDict.dict==NULL || cctx->cdict==NULL);    /* only one can be set */
         DEBUGLOG(4, "ZSTD_compressStream2 : transparent init stage");
         if (endOp == ZSTD_e_end) cctx->pledgedSrcSizePlusOne = input->size + 1;  /* auto-fix pledgedSrcSize */
+        if (prefixDict.dict != NULL) {
+            dictSize = prefixDict.dictSize;
+        } else if (cctx->cdict != NULL) {
+            dictSize = cctx->cdict->dictContentSize;
+        } else {
+            dictSize = 0;
+        }
         params.cParams = ZSTD_getCParamsFromCCtxParams(
-                &cctx->requestedParams, cctx->pledgedSrcSizePlusOne-1, 0 /*dictSize*/);
+                &cctx->requestedParams, cctx->pledgedSrcSizePlusOne-1, dictSize);
 
 
 #ifdef ZSTD_MULTITHREAD
