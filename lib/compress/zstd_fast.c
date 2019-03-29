@@ -132,7 +132,7 @@ size_t ZSTD_compressBlock_fast_generic(
           && (MEM_read32(repMatch) == val1) ) {
             const BYTE* const repMatchEnd = repIndex < prefixStartIndex ? dictEnd : iend;
             mLength = ZSTD_count_2segments(ip1+4, repMatch+4, iend, repMatchEnd, prefixStart) + 4;
-            ZSTD_storeSeq(seqStore, ip0-anchor, anchor, 0, mLength-MINMATCH);
+            ZSTD_storeSeq(seqStore, ip1-anchor, anchor, 0, mLength-MINMATCH);
             ip0++;
             goto _match;
         }
