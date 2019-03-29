@@ -258,7 +258,6 @@ _match:
                     ZSTD_storeSeq(seqStore, 0, anchor, 0, rLength-MINMATCH);
                     ip0 += rLength;
                     anchor = ip0;
-                    continue;   /* faster when present ... (?) */
                 }
             }
             ip1 = ip0 + 1;
