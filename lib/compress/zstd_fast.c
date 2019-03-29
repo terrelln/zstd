@@ -143,7 +143,32 @@ size_t ZSTD_compressBlock_fast_generic(
             ip0++;
             goto _match;
         }
-        if ( (matchIndex0 <= prefixStartIndex) ) {
+        int const matchEnum0 = (matchIndex0 > prefixStartIndex) ? MEM_read32(match0) == val0 : -1;
+        if (matchEnum0 > 0) {
+            /* found a regular match */
+            U32 const offset = (U32)(ip0-match0);
+            mLength = ZSTD_count(ip0+4, match0+4, iend) + 4;
+            while (((ip0>anchor) & (match0>prefixStart))
+                 && (ip0[-1] == match0[-1])) { ip0--; match0--; mLength++; } /* catch up */
+            offset_2 = offset_1;
+            offset_1 = offset;
+            ZSTD_storeSeq(seqStore, ip0-anchor, anchor, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
+            goto _match;
+        }
+        int const matchEnum1 = (matchIndex1 > prefixStartIndex) ? MEM_read32(match1) == val1 : -1;
+        if (matchEnum1 > 0) {
+            /* found a regular match */
+            U32 const offset = (U32)(ip1-match1);
+            mLength = ZSTD_count(ip1+4, match1+4, iend) + 4;
+            while (((ip1>anchor) & (match1>prefixStart))
+                 && (ip1[-1] == match1[-1])) { ip1--; match1--; mLength++; } /* catch up */
+            offset_2 = offset_1;
+            offset_1 = offset;
+            ZSTD_storeSeq(seqStore, ip1-anchor, anchor, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
+            ip0 = ip1;
+            goto _match;
+        }
+        if (matchEnum0 < 0) {
             if (dictMode == ZSTD_dictMatchState) {
                 size_t const dictHash = ZSTD_hashPtr(ip0, dictHLog, mls);
                 U32 const dictMatchIndex = dictHashTable[dictHash];
@@ -162,18 +187,8 @@ size_t ZSTD_compressBlock_fast_generic(
                     goto _match;
                 }
             }
-        } else if (MEM_read32(match0) == val0) {
-            /* found a regular match */
-            U32 const offset = (U32)(ip0-match0);
-            mLength = ZSTD_count(ip0+4, match0+4, iend) + 4;
-            while (((ip0>anchor) & (match0>prefixStart))
-                 && (ip0[-1] == match0[-1])) { ip0--; match0--; mLength++; } /* catch up */
-            offset_2 = offset_1;
-            offset_1 = offset;
-            ZSTD_storeSeq(seqStore, ip0-anchor, anchor, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
-            goto _match;
         }
-        if ( (matchIndex1 <= prefixStartIndex) ) {
+        if ( matchEnum1 < 0 ) {
             if (dictMode == ZSTD_dictMatchState) {
                 size_t const dictHash = ZSTD_hashPtr(ip1, dictHLog, mls);
                 U32 const dictMatchIndex = dictHashTable[dictHash];
@@ -193,17 +208,6 @@ size_t ZSTD_compressBlock_fast_generic(
                     goto _match;
                 }
             }
-        } else if (MEM_read32(match1) == val1) {
-            /* found a regular match */
-            U32 const offset = (U32)(ip1-match1);
-            mLength = ZSTD_count(ip1+4, match1+4, iend) + 4;
-            while (((ip1>anchor) & (match1>prefixStart))
-                 && (ip1[-1] == match1[-1])) { ip1--; match1--; mLength++; } /* catch up */
-            offset_2 = offset_1;
-            offset_1 = offset;
-            ZSTD_storeSeq(seqStore, ip1-anchor, anchor, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
-            ip0 = ip1;
-            goto _match;
         }
         {
             size_t const step = ((ip0-anchor) >> kSearchStrength) + stepSize;
