@@ -220,7 +220,6 @@ _match:
 
         if (ip0 <= ilimit) {
             /* Fill Table */
-            // TODO: Should we fill current1?
             assert(base+current0+2 > istart);  /* check base overflow */
             hashTable[ZSTD_hashPtr(base+current0+2, hlog, mls)] = current0+2;  /* here because current+2 could be > iend-8 */
             hashTable[ZSTD_hashPtr(ip0-2, hlog, mls)] = (U32)(ip0-2-base);
@@ -241,7 +240,6 @@ _match:
                         ZSTD_storeSeq(seqStore, 0, anchor, 0, repLength2-MINMATCH);
                         hashTable[ZSTD_hashPtr(ip0, hlog, mls)] = current2;
                         ip0 += repLength2;
-                        ip1 += repLength2;
                         anchor = ip0;
                         continue;
                     }
@@ -259,10 +257,13 @@ _match:
                     hashTable[ZSTD_hashPtr(ip0, hlog, mls)] = (U32)(ip0-base);
                     ZSTD_storeSeq(seqStore, 0, anchor, 0, rLength-MINMATCH);
                     ip0 += rLength;
-                    ip1 += rLength;
                     anchor = ip0;
                     continue;   /* faster when present ... (?) */
-    }   }   }   }
+                }
+            }
+            ip1 = ip0 + 1;
+        }
+    }
 
     /* save reps for next block */
     rep[0] = offset_1 ? offset_1 : offsetSaved;
