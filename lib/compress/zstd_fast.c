@@ -89,30 +89,28 @@ size_t ZSTD_compressBlock_fast_generic(
         BYTE const* repMatch = ip2-offset_1;
         const BYTE* match0 = base + matchIndex0;
         const BYTE* match1 = base + matchIndex1;
+        U32 offcode;
         hashTable[h0] = current0;   /* update hash table */
         hashTable[h1] = current1;   /* update hash table */
 
         assert(ip0 + 1 == ip1);
 
         if ((offset_1 > 0) & (MEM_read32(repMatch) == MEM_read32(ip2))) {
-            mLength = ZSTD_count(ip2+4, repMatch+4, iend) + 4;
-            if (ip2[-1] == repMatch[-1]) {
-                ip2--;
-                mLength++;
-            }
-            ZSTD_storeSeq(seqStore, ip2-anchor, anchor, 0, mLength-MINMATCH);
-            ip0 = ip2;
+            mLength = ip2[-1] == repMatch[-1] ? 1 : 0;
+            ip0 = ip2 - mLength;
+            match0 = repMatch - mLength;
+            offcode = 0;
             goto _match;
         }
         if ((matchIndex0 > prefixStartIndex) && MEM_read32(match0) == val0) {
             /* found a regular match */
-            goto _store;
+            goto _offset;
         }
         if ((matchIndex1 > prefixStartIndex) && MEM_read32(match1) == val1) {
             /* found a regular match after one literal */
             ip0 = ip1;
             match0 = match1;
-            goto _store;
+            goto _offset;
         }
         {
             size_t const step = ((ip0-anchor) >> (kSearchStrength - 1)) + stepSize;
@@ -121,17 +119,20 @@ size_t ZSTD_compressBlock_fast_generic(
             ip1 += step;
             continue;
         }
-_store:
-        {
-            U32 const offset = (U32)(ip0-match0);
-            mLength = ZSTD_count(ip0+4, match0+4, iend) + 4;
-            while (((ip0>anchor) & (match0>prefixStart))
-                 && (ip0[-1] == match0[-1])) { ip0--; match0--; mLength++; } /* catch up */
-            offset_2 = offset_1;
-            offset_1 = offset;
-            ZSTD_storeSeq(seqStore, ip0-anchor, anchor, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
-        }
-_match:
+_offset: /* Requires: ip0, match0 */
+        /* Compute the offset code */
+        offset_2 = offset_1;
+        offset_1 = (U32)(ip0-match0);
+        offcode = offset_1 + ZSTD_REP_MOVE;
+        mLength = 0;
+        /* Count the backwards match length */
+        while (((ip0>anchor) & (match0>prefixStart))
+             && (ip0[-1] == match0[-1])) { ip0--; match0--; mLength++; } /* catch up */
+
+_match: /* Requires: ip0, match0, offcode */
+        /* Count the forward length */
+        mLength += ZSTD_count(ip0+mLength+4, match0+mLength+4, iend) + 4;
+        ZSTD_storeSeq(seqStore, ip0-anchor, anchor, offcode, mLength-MINMATCH);
         /* match found */
         ip0 += mLength;
         anchor = ip0;
