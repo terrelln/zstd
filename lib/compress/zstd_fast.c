@@ -51,6 +51,7 @@ size_t ZSTD_compressBlock_fast_generic(
     U32* const hashTable = ms->hashTable;
     U32 const hlog = cParams->hashLog;
     /* support stepSize of 0 */
+    size_t const stepSize = (cParams->targetLength + !(cParams->targetLength)) * 2;
     const BYTE* const base = ms->window.base;
     const BYTE* const istart = (const BYTE*)src;
     /* We check ip0 (ip + 0) and ip1 (ip + 1) each loop */
@@ -74,8 +75,9 @@ size_t ZSTD_compressBlock_fast_generic(
     }
 
     /* Main Search Loop */
-    while (ip1 < ilimit) {   /* < instead of <=, because check at ip1+1 */
+    while (ip1 < ilimit) {   /* < instead of <=, because check at ip0+2 */
         size_t mLength;
+        BYTE const* ip2 = ip0 + 2;
         size_t const h0 = ZSTD_hashPtr(ip0, hlog, mls);
         U32 const val0 = MEM_read32(ip0);
         size_t const h1 = ZSTD_hashPtr(ip1, hlog, mls);
@@ -84,7 +86,7 @@ size_t ZSTD_compressBlock_fast_generic(
         U32 const current1 = (U32)(ip1-base);
         U32 const matchIndex0 = hashTable[h0];
         U32 const matchIndex1 = hashTable[h1];
-        const BYTE* repMatch = ip1+1-offset_1;
+        BYTE const* repMatch = ip2-offset_1;
         const BYTE* match0 = base + matchIndex0;
         const BYTE* match1 = base + matchIndex1;
         hashTable[h0] = current0;   /* update hash table */
@@ -92,15 +94,14 @@ size_t ZSTD_compressBlock_fast_generic(
 
         assert(ip0 + 1 == ip1);
 
-        if ((offset_1 > 0) & (MEM_read32(repMatch) == MEM_read32(ip1+1))) {
-            mLength = ZSTD_count(ip1+1+4, repMatch+4, iend) + 4;
-            ip0 += 2;
-            if (ip0[-1] == repMatch[-1]) {
-              ip0--;
-              repMatch--;
-              mLength++;
+        if ((offset_1 > 0) & (MEM_read32(repMatch) == MEM_read32(ip2))) {
+            mLength = ZSTD_count(ip2+4, repMatch+4, iend) + 4;
+            if (ip2[-1] == repMatch[-1]) {
+                ip2--;
+                mLength++;
             }
-            ZSTD_storeSeq(seqStore, ip0-anchor, anchor, 0, mLength-MINMATCH);
+            ZSTD_storeSeq(seqStore, ip2-anchor, anchor, 0, mLength-MINMATCH);
+            ip0 = ip2;
             goto _match;
         }
         if ((matchIndex0 > prefixStartIndex) && MEM_read32(match0) == val0) {
@@ -114,8 +115,8 @@ size_t ZSTD_compressBlock_fast_generic(
             goto _store;
         }
         {
-            size_t const step = ((1 << kSearchStrength) + ip0-anchor) >> (kSearchStrength - 1);
-            assert(stepSize >= 2);
+            size_t const step = ((ip0-anchor) >> (kSearchStrength - 1)) + stepSize;
+            assert(step >= 2);
             ip0 += step;
             ip1 += step;
             continue;
