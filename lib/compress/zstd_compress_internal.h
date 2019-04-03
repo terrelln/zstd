@@ -353,7 +353,7 @@ MEM_STATIC void ZSTD_storeSeq(seqStore_t* seqStorePtr, size_t litLength, const v
 /*-*************************************
 *  Match length counter
 ***************************************/
-static unsigned ZSTD_NbCommonBytes (size_t val)
+MEM_STATIC unsigned ZSTD_NbCommonBytes (size_t val)
 {
     if (MEM_isLittleEndian()) {
         if (MEM_64bits()) {
@@ -421,23 +421,30 @@ static unsigned ZSTD_NbCommonBytes (size_t val)
     }   }
 }
 
+#include <emmintrin.h>
+
 
 MEM_STATIC size_t ZSTD_count(const BYTE* pIn, const BYTE* pMatch, const BYTE* const pInLimit)
 {
     const BYTE* const pStart = pIn;
-    const BYTE* const pInLoopLimit = pInLimit - (sizeof(size_t)-1);
+    const BYTE* const pInLoopLimit = pInLimit - (sizeof(__m128i)-1);
 
     if (pIn < pInLoopLimit) {
-        { size_t const diff = MEM_readST(pMatch) ^ MEM_readST(pIn);
-          if (diff) return ZSTD_NbCommonBytes(diff); }
-        pIn+=sizeof(size_t); pMatch+=sizeof(size_t);
+        {
+            int const diff = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(pIn), _mm_loadu_si128(pMatch))) ^ 0xFFFF;
+            if (diff) return __builtin_ctz(diff);
+        }
+        pIn+=sizeof(__m128i); pMatch+=sizeof(__m128i);
         while (pIn < pInLoopLimit) {
-            size_t const diff = MEM_readST(pMatch) ^ MEM_readST(pIn);
-            if (!diff) { pIn+=sizeof(size_t); pMatch+=sizeof(size_t); continue; }
-            pIn += ZSTD_NbCommonBytes(diff);
+            int const diff = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(pIn), _mm_loadu_si128(pMatch))) ^ 0xFFFF;
+            if (!diff) { pIn+=sizeof(__m128i); pMatch+=sizeof(__m128i); continue; }
+            pIn += __builtin_ctz(diff);
             return (size_t)(pIn - pStart);
-    }   }
-    if (MEM_64bits() && (pIn<(pInLimit-3)) && (MEM_read32(pMatch) == MEM_read32(pIn))) { pIn+=4; pMatch+=4; }
+        }
+    }
+
+    if ((pIn<(pInLimit-7)) && (MEM_read64(pMatch) == MEM_read64(pIn))) { pIn+=8; pMatch+=8;}
+    if ((pIn<(pInLimit-3)) && (MEM_read32(pMatch) == MEM_read32(pIn))) { pIn+=4; pMatch+=4; }
     if ((pIn<(pInLimit-1)) && (MEM_read16(pMatch) == MEM_read16(pIn))) { pIn+=2; pMatch+=2; }
     if ((pIn<pInLimit) && (*pMatch == *pIn)) pIn++;
     return (size_t)(pIn - pStart);
