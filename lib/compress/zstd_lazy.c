@@ -560,6 +560,107 @@ size_t ZSTD_HcFindBestMatch_generic (
     return ml;
 }
 
+#include <immintrin.h>
+
+/* inlining is important to hardwire a hot branch (template emulation) */
+FORCE_INLINE_TEMPLATE
+size_t ZSTD_VectFindBestMatch_generic (
+                        ZSTD_matchState_t* ms,
+                        const BYTE* const ip, const BYTE* const iLimit,
+                        size_t* offsetPtr,
+                        const U32 mls, const ZSTD_dictMode_e dictMode)
+{
+    const ZSTD_compressionParameters* const cParams = &ms->cParams;
+    // TODO: Could use the chain-table for a 8-byte hash like double fast
+    U32* const hashTable = ms->hashTable;
+    const U32 hashLog = cParams->hashLog >> 3; /* We have buckets of 8 entries */
+    const BYTE* const base = ms->window.base;
+    const BYTE* const dictBase = ms->window.dictBase;
+    const U32 dictLimit = ms->window.dictLimit;
+    const BYTE* const prefixStart = base + dictLimit;
+    const BYTE* const dictEnd = dictBase + dictLimit;
+    const U32 lowLimit = ms->window.lowLimit;
+    
+    size_t const hash = ZSTD_hashPtr(ip, hashLog, mls) << 3; /* Find the bucket */
+    const U32 current = (U32)(ip-base);
+
+
+    assert(cParams->searchLog == 3); /* We do 8 searches */
+
+    /* Load the match candidates. Out of bounds candidates get mapped to
+     * values that are 0-byte matches.
+     */
+    U64      const value          = MEM_read64(ip);
+    __mm256i const vNotCurrent    = _mm256_set1_epi64(~value);
+    __mm256i const vMatchIndices  = _mm256_loadu_si256((__mm256i const*)(hashTable + hash));
+    __mm128i const vMatchIndices0 = _mm256_extracti128_si256(vMatchIndices, 0);
+    __mm128i const vMatchIndices1 = _mm256_extracti128_si256(vMatchIndices, 1);
+    __mm256i const vLowLimit      = _mm256_set1_epi32(lowLimit);
+    __mm256i const vValid         = _mm256_cmpgt_epi32(vMatchIndices, vLowLimit);
+    __mm256i const vMatches0      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices0, vValid, 1);
+    __mm256i const vMatches1      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices1, vValid, 1);
+    /* Compute the match lengths. */
+    __mm256i const vCurrrent       = _mm256_set1_epi64(value);
+    __mm256i const vMatchXor0      = _mm256_xor_si256(vMatches0, vCurrent);
+    __mm256i const vMatchXor1      = _mm256_xor_si256(vMatches1, vCurrent);
+    __mm256i const vZero           = _mm256_setzero_si256();
+    __mm256i const vIsByteMatch0   = _mm256_cmpeq_epi8(vMatchXor0, vZero);
+    __mm256i const vIsByteMatch1   = _mm256_cmpeq_epi8(vMatchXor1, vZero);
+    __mm256i const vShiftFinish    = _mm256_set1_epi64x(0x8040201008040201ULL);
+    __mm256i const vMatchSpread0   = _mm256_and_si256(vIsByteMatch0, vShiftFinish);
+    __mm256i const vMatchSpread1   = _mm256_and_si256(vIsByteMatch1, vShiftFinish);
+    __mm256i const vMatchMaskWide0 = _mm256_sad_epu8(vMatchSpread0, vZero);
+    __mm256i const vMatchMaskWide1 = _mm256_sad_epu8(vMatchSpread1, vZero);
+    __mm256i const vDownConvert    = _mm256_set_epi32(0xffffff00, 0xffffff08, -1, -1, -1, -1, 0xffffff00, 0xffffff08);
+
+    // Compute the match lengths. Invalid matches have length 0.
+    // Return the longest match.
+
+    /* HC4 match finder */
+    U32 matchIndex = ZSTD_insertAndFindFirstIndex_internal(ms, cParams, ip, mls);
+
+    for ( ; (matchIndex>lowLimit) & (nbAttempts>0) ; nbAttempts--) {
+        size_t currentMl=0;
+        if ((dictMode != ZSTD_extDict) || matchIndex >= dictLimit) {
+            const BYTE* const match = base + matchIndex;
+            assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
+            if (match[ml] == ip[ml])   /* potentially better */
+                currentMl = ZSTD_count(ip, match, iLimit);
+        } else {
+            const BYTE* const match = dictBase + matchIndex;
+            assert(match+4 <= dictEnd);
+            if (MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
+                currentMl = ZSTD_count_2segments(ip+4, match+4, iLimit, dictEnd, prefixStart) + 4;
+        }
+
+        /* save best solution */
+        if (currentMl > ml) {
+            ml = currentMl;
+            *offsetPtr = current - matchIndex + ZSTD_REP_MOVE;
+            if (ip+currentMl == iLimit) break; /* best possible, avoids read overflow on next attempt */
+        }
+
+        if (matchIndex <= minChain) break;
+        matchIndex = NEXT_IN_CHAIN(matchIndex, chainMask);
+    }
+}
+
+FORCE_INLINE_TEMPLATE size_t ZSTD_VectFindBestMatch_selectMLS (
+                        ZSTD_matchState_t* ms,
+                        const BYTE* ip, const BYTE* const iLimit,
+                        size_t* offsetPtr)
+{
+    // assert(ip + 1 <= iLimit); /* We want to precompute hashes for ip + 1 for the common case */
+    switch(ms->cParams.minMatch)
+    {
+    default : /* includes case 3 */
+    case 4 : return ZSTD_VectFindBestMatch_generic(ms, ip, iLimit, offsetPtr, 4);
+    case 5 : return ZSTD_VectFindBestMatch_generic(ms, ip, iLimit, offsetPtr, 5);
+    case 7 :
+    case 6 : return ZSTD_VectFindBestMatch_generic(ms, ip, iLimit, offsetPtr, 6);
+    }
+}
+
 
 FORCE_INLINE_TEMPLATE size_t ZSTD_HcFindBestMatch_selectMLS (
                         ZSTD_matchState_t* ms,
