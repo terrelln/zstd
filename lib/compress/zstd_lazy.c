@@ -591,27 +591,36 @@ size_t ZSTD_VectFindBestMatch_generic (
      * values that are 0-byte matches.
      */
     U64      const value          = MEM_read64(ip);
-    __mm256i const vNotCurrent    = _mm256_set1_epi64(~value);
-    __mm256i const vMatchIndices  = _mm256_loadu_si256((__mm256i const*)(hashTable + hash));
-    __mm128i const vMatchIndices0 = _mm256_extracti128_si256(vMatchIndices, 0);
-    __mm128i const vMatchIndices1 = _mm256_extracti128_si256(vMatchIndices, 1);
-    __mm256i const vLowLimit      = _mm256_set1_epi32(lowLimit);
-    __mm256i const vValid         = _mm256_cmpgt_epi32(vMatchIndices, vLowLimit);
-    __mm256i const vMatches0      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices0, vValid, 1);
-    __mm256i const vMatches1      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices1, vValid, 1);
+    __m256i const vNotCurrent    = _mm256_set1_epi64(~value);
+    __m256i const vMatchIndices  = _mm256_loadu_si256((__mm256i const*)(hashTable + hash));
+    __m128i const vMatchIndices0 = _mm256_extracti128_si256(vMatchIndices, 0);
+    __m128i const vMatchIndices1 = _mm256_extracti128_si256(vMatchIndices, 1);
+    __m256i const vLowLimit      = _mm256_set1_epi32(lowLimit);
+    __m256i const vValid         = _mm256_cmpgt_epi32(vMatchIndices, vLowLimit);
+    __m256i const vMatches0      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices0, vValid, 1);
+    __m256i const vMatches1      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices1, vValid, 1);
     /* Compute the match lengths. */
-    __mm256i const vCurrrent       = _mm256_set1_epi64(value);
-    __mm256i const vMatchXor0      = _mm256_xor_si256(vMatches0, vCurrent);
-    __mm256i const vMatchXor1      = _mm256_xor_si256(vMatches1, vCurrent);
-    __mm256i const vZero           = _mm256_setzero_si256();
-    __mm256i const vIsByteMatch0   = _mm256_cmpeq_epi8(vMatchXor0, vZero);
-    __mm256i const vIsByteMatch1   = _mm256_cmpeq_epi8(vMatchXor1, vZero);
-    __mm256i const vShiftFinish    = _mm256_set1_epi64x(0x8040201008040201ULL);
-    __mm256i const vMatchSpread0   = _mm256_and_si256(vIsByteMatch0, vShiftFinish);
-    __mm256i const vMatchSpread1   = _mm256_and_si256(vIsByteMatch1, vShiftFinish);
-    __mm256i const vMatchMaskWide0 = _mm256_sad_epu8(vMatchSpread0, vZero);
-    __mm256i const vMatchMaskWide1 = _mm256_sad_epu8(vMatchSpread1, vZero);
-    __mm256i const vDownConvert    = _mm256_set_epi32(0xffffff00, 0xffffff08, -1, -1, -1, -1, 0xffffff00, 0xffffff08);
+    __m256i const vCurrrent       = _mm256_set1_epi64(value);
+    __m256i const vMatchXor0      = _mm256_xor_si256(vMatches0, vCurrent);
+    __m256i const vMatchXor1      = _mm256_xor_si256(vMatches1, vCurrent);
+    __m256i const vZero           = _mm256_setzero_si256();
+    __m256i const vIsByteMatch0   = _mm256_cmpeq_epi8(vMatchXor0, vZero);
+    __m256i const vIsByteMatch1   = _mm256_cmpeq_epi8(vMatchXor1, vZero);
+    __m256i const vShiftFinish    = _mm256_set1_epi64x(0x8040201008040201ULL);
+    __m256i const vMatchSpread0   = _mm256_and_si256(vIsByteMatch0, vShiftFinish);
+    __m256i const vMatchSpread1   = _mm256_and_si256(vIsByteMatch1, vShiftFinish);
+    __m256i const vMatchMask2560  = _mm256_sad_epu8(vMatchSpread0, vZero);
+    __m256i const vMatchMask2561  = _mm256_sad_epu8(vMatchSpread1, vZero);
+    __m256i const vDownConvert    = _mm256_set_epi32(0xffffff00, 0xffffff08, -1, -1, -1, -1, 0xffffff00, 0xffffff08);
+    __m256i const vMatchMask1280  = _mm256_shuffle_epi8(vMatchMask2560, vDownConvert);
+    __m256i const vMatchMask1281  = _mm256_shuffle_epi8(vMatchMask2561, vDownConvert);
+    __m128i const vMatchMask00    = _mm256_extracti128_si256(vMatchMask1280, 0);
+    __m128i const vMatchMask01    = _mm256_extracti128_si256(vMatchMask1280, 1);
+    __m128i const vMatchMask10    = _mm256_extracti128_si256(vMatchMask1281, 0);
+    __m128i const vMatchMask11    = _mm256_extracti128_si256(vMatchMask1281, 1);
+    __m128i const vMatchMask0     = _mm_or_si128(vMatchMask00, vMatchMask01);
+    __m128i const vMatchMask1     = _mm_or_si128(vMatchMask10, vMatchMask11);
+    __m256i const vMatchMask      = _mm256_set_m128i(vMatchMask0, vMatchMask1);
 
     // Compute the match lengths. Invalid matches have length 0.
     // Return the longest match.
