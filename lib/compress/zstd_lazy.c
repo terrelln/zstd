@@ -562,18 +562,45 @@ size_t ZSTD_HcFindBestMatch_generic (
 
 #include <immintrin.h>
 
+static void updateTable(U32* bucket, __m128i const vOld, U32 newValue)
+{
+    __m128i const vShifted = _mm_slli_si128(vOld, 4);
+    __m128i const vNew = _mm_set_epi32(0, 0, 0, newValue);
+    __m128i const vCombined = _mm_or_si128(vShifted, vNew);
+    _mm_store_si128((__m128i*)bucket, vCombined);
+}
+
+#if defined(DEBUGLEVEL) && DEBUGLEVEL >= 2
+#define P32_128(x) do { \
+    U32 y[4]; \
+    _mm_store_si128((__m128i*)y, x); \
+    DEBUGLOG(2, "L%u %s = {%u, %u, %u, %u}", __LINE__, #x, y[0], y[1], y[2], y[3]); \
+    } while (0)
+#define P32_256(x) do { \
+    U32 y[8]; \
+    _mm256_store_si256((__m256i*)y, x); \
+    DEBUGLOG(2, "L%u %s = {%u, %u, %u, %u} {%u, %u, %u, %u}", __LINE__, #x, y[0], y[1], y[2], y[3], y[4], y[5], y[6], y[7]); \
+    } while (0)
+#else
+#define P32_128(x)
+#define P32_256(x)
+#endif
+
 /* inlining is important to hardwire a hot branch (template emulation) */
 FORCE_INLINE_TEMPLATE
 size_t ZSTD_VectFindBestMatch_generic (
                         ZSTD_matchState_t* ms,
                         const BYTE* const ip, const BYTE* const iLimit,
                         size_t* offsetPtr,
-                        const U32 mls, const ZSTD_dictMode_e dictMode)
+                        const U32 mls)
 {
     const ZSTD_compressionParameters* const cParams = &ms->cParams;
     // TODO: Could use the chain-table for a 8-byte hash like double fast
-    U32* const hashTable = ms->hashTable;
-    const U32 hashLog = cParams->hashLog >> 3; /* We have buckets of 8 entries */
+    U32* const hashTableL = ms->hashTable;
+    U32* const hashTableS = ms->chainTable;
+    U32 const searchLog = 2;
+    const U32 hashLogL = cParams->hashLog - 2; /* We have buckets of 4 entries */
+    const U32 hashLogS = cParams->chainLog - 2;
     const BYTE* const base = ms->window.base;
     const BYTE* const dictBase = ms->window.dictBase;
     const U32 dictLimit = ms->window.dictLimit;
@@ -581,77 +608,210 @@ size_t ZSTD_VectFindBestMatch_generic (
     const BYTE* const dictEnd = dictBase + dictLimit;
     const U32 lowLimit = ms->window.lowLimit;
     
-    size_t const hash = ZSTD_hashPtr(ip, hashLog, mls) << 3; /* Find the bucket */
+    size_t const hashL = ZSTD_hashPtr(ip, hashLogL, 8) << searchLog; /* Find the bucket */
+    size_t const hashS = ZSTD_hashPtr(ip, hashLogS, mls) << searchLog;
     const U32 current = (U32)(ip-base);
+    const U32 searches = 1 << searchLog;
 
 
-    assert(cParams->searchLog == 3); /* We do 8 searches */
 
+    assert(cParams->searchLog == 3); /* We do 8 searches, 4 in each table */
+#if 1
+    const U32 target = current;
+    U32 idx = ms->nextToUpdate;
+
+    while(idx < target) { /* catch up */
+        size_t const hL = ZSTD_hashPtr(base+idx, hashLogL, 8) << searchLog;
+        size_t const hS = ZSTD_hashPtr(base+idx, hashLogS, mls) << searchLog;
+        __m128i const vMatchIndicesL = _mm_loadu_si128((__m128i const*)(hashTableL + hL));
+        __m128i const vMatchIndicesS = _mm_loadu_si128((__m128i const*)(hashTableS + hS));
+        updateTable(hashTableL + hL, vMatchIndicesL, idx);
+        updateTable(hashTableS + hS, vMatchIndicesS, idx);
+        idx++;
+    }
+    ms->nextToUpdate = target;
     /* Load the match candidates. Out of bounds candidates get mapped to
      * values that are 0-byte matches.
      */
     U64      const value          = MEM_read64(ip);
-    __m256i const vNotCurrent    = _mm256_set1_epi64(~value);
-    __m256i const vMatchIndices  = _mm256_loadu_si256((__mm256i const*)(hashTable + hash));
-    __m128i const vMatchIndices0 = _mm256_extracti128_si256(vMatchIndices, 0);
-    __m128i const vMatchIndices1 = _mm256_extracti128_si256(vMatchIndices, 1);
-    __m256i const vLowLimit      = _mm256_set1_epi32(lowLimit);
-    __m256i const vValid         = _mm256_cmpgt_epi32(vMatchIndices, vLowLimit);
-    __m256i const vMatches0      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices0, vValid, 1);
-    __m256i const vMatches1      = _mm256_mask_i32gather_epi64(vNotCurrent, base, vMatchIndices1, vValid, 1);
+    __m256i const vNotCurrent    = _mm256_set1_epi64x(~value);
+    P32_256(vNotCurrent);
+
+    __m128i const vMatchIndicesL = _mm_loadu_si128((__m128i const*)(hashTableL + hashL));
+    P32_128(vMatchIndicesL);
+    __m128i const vMatchIndicesS = _mm_loadu_si128((__m128i const*)(hashTableS + hashS));
+    P32_128(vMatchIndicesS);
+
+    updateTable(hashTableL + hashL, vMatchIndicesL, current);
+    updateTable(hashTableS + hashS, vMatchIndicesS, current);
+
+    __m128i const vLowLimit      = _mm_set1_epi32(lowLimit);
+    P32_128(vLowLimit);
+    __m256i const vValidL        = _mm256_cvtepi32_epi64(_mm_cmpgt_epi32(vMatchIndicesL, vLowLimit));
+    __m256i const vValidS        = _mm256_cvtepi32_epi64(_mm_cmpgt_epi32(vMatchIndicesS, vLowLimit));
+    __m256i const vMatchesL      = _mm256_mask_i32gather_epi64(vNotCurrent, (long long int const*)base, vMatchIndicesL, vValidL, 1);
+    P32_256(vMatchesL);
+    __m256i const vMatchesS      = _mm256_mask_i32gather_epi64(vNotCurrent, (long long int const*)base, vMatchIndicesS, vValidS, 1);
+    P32_256(vMatchesS);
     /* Compute the match lengths. */
-    __m256i const vCurrrent       = _mm256_set1_epi64(value);
-    __m256i const vMatchXor0      = _mm256_xor_si256(vMatches0, vCurrent);
-    __m256i const vMatchXor1      = _mm256_xor_si256(vMatches1, vCurrent);
+    __m256i const vCurrent       = _mm256_set1_epi64x(value);
+    P32_256(vCurrent);
+    __m256i const vMatchXorL      = _mm256_xor_si256(vMatchesL, vCurrent);
+    __m256i const vMatchXorS      = _mm256_xor_si256(vMatchesS, vCurrent);
     __m256i const vZero           = _mm256_setzero_si256();
-    __m256i const vIsByteMatch0   = _mm256_cmpeq_epi8(vMatchXor0, vZero);
-    __m256i const vIsByteMatch1   = _mm256_cmpeq_epi8(vMatchXor1, vZero);
+    __m256i const vIsByteMatchL   = _mm256_cmpeq_epi8(vMatchXorL, vZero);
+    P32_256(vIsByteMatchL);
+    __m256i const vIsByteMatchS   = _mm256_cmpeq_epi8(vMatchXorS, vZero);
+    P32_256(vIsByteMatchS);
     __m256i const vShiftFinish    = _mm256_set1_epi64x(0x8040201008040201ULL);
-    __m256i const vMatchSpread0   = _mm256_and_si256(vIsByteMatch0, vShiftFinish);
-    __m256i const vMatchSpread1   = _mm256_and_si256(vIsByteMatch1, vShiftFinish);
-    __m256i const vMatchMask2560  = _mm256_sad_epu8(vMatchSpread0, vZero);
-    __m256i const vMatchMask2561  = _mm256_sad_epu8(vMatchSpread1, vZero);
-    __m256i const vDownConvert    = _mm256_set_epi32(0xffffff00, 0xffffff08, -1, -1, -1, -1, 0xffffff00, 0xffffff08);
-    __m256i const vMatchMask1280  = _mm256_shuffle_epi8(vMatchMask2560, vDownConvert);
-    __m256i const vMatchMask1281  = _mm256_shuffle_epi8(vMatchMask2561, vDownConvert);
-    __m128i const vMatchMask00    = _mm256_extracti128_si256(vMatchMask1280, 0);
-    __m128i const vMatchMask01    = _mm256_extracti128_si256(vMatchMask1280, 1);
-    __m128i const vMatchMask10    = _mm256_extracti128_si256(vMatchMask1281, 0);
-    __m128i const vMatchMask11    = _mm256_extracti128_si256(vMatchMask1281, 1);
-    __m128i const vMatchMask0     = _mm_or_si128(vMatchMask00, vMatchMask01);
-    __m128i const vMatchMask1     = _mm_or_si128(vMatchMask10, vMatchMask11);
-    __m256i const vMatchMask      = _mm256_set_m128i(vMatchMask0, vMatchMask1);
+    P32_256(vShiftFinish);
+    __m256i const vMatchSpreadL   = _mm256_and_si256(vIsByteMatchL, vShiftFinish);
+    P32_256(vMatchSpreadL);
+    __m256i const vMatchSpreadS   = _mm256_and_si256(vIsByteMatchS, vShiftFinish);
+    P32_256(vMatchSpreadS);
+    __m256i const vMatchMask256L  = _mm256_sad_epu8(vMatchSpreadL, vZero);
+    P32_256(vMatchMask256L);
+    __m256i const vMatchMask256S  = _mm256_sad_epu8(vMatchSpreadS, vZero);
+    P32_256(vMatchMask256S);
+    // __m256i const vDownConvert    = _mm256_set_epi32(0xffffff00, 0xffffff08, -1, -1, -1, -1, 0xffffff00, 0xffffff08);
+    __m256i const vDownConvert    = _mm256_set_epi32(0xffffff08, 0xffffff00, -1, -1, -1, -1, 0xffffff08, 0xffffff00);
+    P32_256(vDownConvert);
+    __m256i const vMatchMask128L  = _mm256_shuffle_epi8(vMatchMask256L, vDownConvert);
+    P32_256(vMatchMask128L);
+    __m256i const vMatchMask128S  = _mm256_shuffle_epi8(vMatchMask256S, vDownConvert);
+    P32_256(vMatchMask128S);
 
-    // Compute the match lengths. Invalid matches have length 0.
-    // Return the longest match.
+    __m128i const vMatchMaskL0    = _mm256_extracti128_si256(vMatchMask128L, 0);
+    __m128i const vMatchMaskL1    = _mm256_extracti128_si256(vMatchMask128L, 1);
+    __m128i const vMatchMaskL     = _mm_or_si128(vMatchMaskL0, vMatchMaskL1);
+    __m128i const vMatchMaskS0    = _mm256_extracti128_si256(vMatchMask128S, 0);
+    __m128i const vMatchMaskS1    = _mm256_extracti128_si256(vMatchMask128S, 1);
+    __m128i const vMatchMaskS     = _mm_or_si128(vMatchMaskS0, vMatchMaskS1);
+    __m256i const vMatchMask      = _mm256_set_m128i(vMatchMaskL, vMatchMaskS);
+    P32_256(vMatchMask);
 
-    /* HC4 match finder */
-    U32 matchIndex = ZSTD_insertAndFindFirstIndex_internal(ms, cParams, ip, mls);
+    __m256i const vMatchMaskHigh  = _mm256_srli_epi32(vMatchMask, 4);
+    P32_256(vMatchMaskHigh);
+    __m256i const vLowNibbleMask  = _mm256_set1_epi32(0xf);
+    __m256i const vMatchMaskLow   = _mm256_and_si256(vMatchMask, vLowNibbleMask);
+    P32_256(vMatchMaskLow);
 
-    for ( ; (matchIndex>lowLimit) & (nbAttempts>0) ; nbAttempts--) {
-        size_t currentMl=0;
-        if ((dictMode != ZSTD_extDict) || matchIndex >= dictLimit) {
-            const BYTE* const match = base + matchIndex;
-            assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
-            if (match[ml] == ip[ml])   /* potentially better */
-                currentMl = ZSTD_count(ip, match, iLimit);
-        } else {
-            const BYTE* const match = dictBase + matchIndex;
-            assert(match+4 <= dictEnd);
-            if (MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
-                currentMl = ZSTD_count_2segments(ip+4, match+4, iLimit, dictEnd, prefixStart) + 4;
+    __m256i const vMatchLowMax    = _mm256_set1_epi32(0x4);
+    __m128i const vMatchCountP128 = _mm_set_epi8(
+    0x04, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00);
+    // 0x0, 0x1, 0x0, 0x2, 0x0, 0x1, 0x0, 0x3, 0x0, 0x1, 0x0, 0x2, 0x0, 0x1, 0x0, 0x4);
+    P32_128(vMatchCountP128);
+    __m256i const vMatchCountPerm = _mm256_broadcastsi128_si256(vMatchCountP128);
+    P32_256(vMatchCountPerm);
+
+    __m256i const vMatchCountHigh = _mm256_shuffle_epi8(vMatchCountPerm, vMatchMaskHigh);
+    P32_256(vMatchCountHigh);
+    __m256i const vMatchCountLow  = _mm256_shuffle_epi8(vMatchCountPerm, vMatchMaskLow);
+    P32_256(vMatchCountLow);
+
+    __m256i const vMatchedLowMax  = _mm256_cmpeq_epi8(vMatchCountLow, vMatchLowMax);
+    P32_256(vMatchedLowMax);
+    __m256i const vMatchCountHigh2= _mm256_and_si256(vMatchCountHigh, vMatchedLowMax);
+    P32_256(vMatchCountHigh2);
+
+    // _mm256i const vMatchIndices;
+    __m256i const vMatchLengths   = _mm256_add_epi32(vMatchCountLow, vMatchCountHigh2);
+    P32_256(vMatchLengths);
+    U32 matchLengths[8];
+    U32 matchIndices[8];
+    _mm256_store_si256((__m256i*)matchLengths, vMatchLengths);
+    _mm_store_si128((__m128i*)matchIndices, vMatchIndicesS);
+    _mm_store_si128((__m128i*)(matchIndices + 4), vMatchIndicesL);
+
+    size_t longest = 4-1;
+    for (int i = 0; i < 8; ++i) {
+        U32 const matchIndex = matchIndices[i];
+        const BYTE* const match = base + matchIndex;
+        size_t length = matchLengths[i];
+        if (length != 0) {
+            assert(matchIndex > lowLimit);
+            assert(matchIndex > dictLimit);
+            DEBUGLOG(2, "Length %zu vs %zu", length, ZSTD_count(ip, match, iLimit));
+            assert(ZSTD_count(ip, match, iLimit) >= length);
         }
+        assert(length <= 8);
+        if (length == 8) {
+            length = ZSTD_count(ip+8, match+8, iLimit)+8;
+        }
+        if (length > longest) {
+            longest = length;
+            *offsetPtr = current - matchIndex + ZSTD_REP_MOVE;
+        }
+    }
+    // Update the hash table
+    return longest;
+#else
+    const U32 target = (U32)(ip - base);
+    U32 idx = ms->nextToUpdate;
 
-        /* save best solution */
+    while(idx < target) { /* catch up */
+        size_t const hL = ZSTD_hashPtr(base+idx, hashLogL, 8) << searchLog;
+        size_t const hS = ZSTD_hashPtr(base+idx, hashLogS, mls) << searchLog;
+        U32* bucketL = hashTableL + hL;
+        U32* bucketS = hashTableS + hS;
+        for (int i = searches - 1; i > 0; --i) {
+            bucketL[i] = bucketL[i-1];
+        }
+        bucketL[0] = idx;
+        for (int i = searches - 1; i > 0; --i) {
+            bucketS[i] = bucketS[i-1];
+        }
+        bucketS[0] = idx;
+        idx++;
+    }
+    ms->nextToUpdate = target;
+
+    size_t ml = 4-1;
+    for (int i = 0; i < searches; ++i) {
+        U32 const matchIndex = hashTableL[hashL + i];
+        const BYTE* const match = base + matchIndex;
+        size_t currentMl = 0;
+        /* We store matches in order so stop once we're out of bounds */
+        if (matchIndex <= lowLimit)
+            break;
+        assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
+        if (match[ml] == ip[ml])   /* potentially better */
+            currentMl = ZSTD_count(ip, match, iLimit);
         if (currentMl > ml) {
             ml = currentMl;
             *offsetPtr = current - matchIndex + ZSTD_REP_MOVE;
-            if (ip+currentMl == iLimit) break; /* best possible, avoids read overflow on next attempt */
+            if (ip+currentMl == iLimit)
+                break; /* best possible, avoids read overflow on next attempt */
         }
-
-        if (matchIndex <= minChain) break;
-        matchIndex = NEXT_IN_CHAIN(matchIndex, chainMask);
     }
+    if (ip+ml < iLimit)
+        for (int i = 0; i < searches; ++i) {
+            U32 const matchIndex = hashTableS[hashS + i];
+            const BYTE* const match = base + matchIndex;
+            size_t currentMl = 0;
+            /* We store matches in order so stop once we're out of bounds */
+            if (matchIndex <= lowLimit)
+                break;
+            assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
+            if (match[ml] == ip[ml])   /* potentially better */
+                currentMl = ZSTD_count(ip, match, iLimit);
+            if (currentMl > ml) {
+                ml = currentMl;
+                *offsetPtr = current - matchIndex + ZSTD_REP_MOVE;
+                if (ip+currentMl == iLimit)
+                    break; /* best possible, avoids read overflow on next attempt */
+            }
+        }
+    for (int i = searches - 1; i > 0; --i) {
+        hashTableL[hashL + i] = hashTableL[hashL + i-1];
+    }
+    hashTableL[hashL] = current;
+    for (int i = searches - 1; i > 0; --i) {
+        hashTableS[hashS + i] = hashTableS[hashS + i-1];
+    }
+    hashTableS[hashS] = current;
+    return ml;
+#endif
 }
 
 FORCE_INLINE_TEMPLATE size_t ZSTD_VectFindBestMatch_selectMLS (
@@ -742,9 +902,10 @@ size_t ZSTD_compressBlock_lazy_generic(
     typedef size_t (*searchMax_f)(
                         ZSTD_matchState_t* ms,
                         const BYTE* ip, const BYTE* iLimit, size_t* offsetPtr);
-    searchMax_f const searchMax = dictMode == ZSTD_dictMatchState ?
-        (searchMethod ? ZSTD_BtFindBestMatch_dictMatchState_selectMLS : ZSTD_HcFindBestMatch_dictMatchState_selectMLS) :
-        (searchMethod ? ZSTD_BtFindBestMatch_selectMLS : ZSTD_HcFindBestMatch_selectMLS);
+    // searchMax_f const searchMax = dictMode == ZSTD_dictMatchState ?
+    //     (searchMethod ? ZSTD_BtFindBestMatch_dictMatchState_selectMLS : ZSTD_HcFindBestMatch_dictMatchState_selectMLS) :
+    //     (searchMethod ? ZSTD_BtFindBestMatch_selectMLS : ZSTD_HcFindBestMatch_selectMLS);
+    searchMax_f const searchMax = ZSTD_VectFindBestMatch_selectMLS;
     U32 offset_1 = rep[0], offset_2 = rep[1], savedOffset=0;
 
     const ZSTD_matchState_t* const dms = ms->dictMatchState;
@@ -990,6 +1151,7 @@ size_t ZSTD_compressBlock_btlazy2_dictMatchState(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
         void const* src, size_t srcSize)
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_generic(ms, seqStore, rep, src, srcSize, 1, 2, ZSTD_dictMatchState);
 }
 
@@ -997,6 +1159,7 @@ size_t ZSTD_compressBlock_lazy2_dictMatchState(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
         void const* src, size_t srcSize)
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_generic(ms, seqStore, rep, src, srcSize, 0, 2, ZSTD_dictMatchState);
 }
 
@@ -1004,6 +1167,7 @@ size_t ZSTD_compressBlock_lazy_dictMatchState(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
         void const* src, size_t srcSize)
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_generic(ms, seqStore, rep, src, srcSize, 0, 1, ZSTD_dictMatchState);
 }
 
@@ -1011,6 +1175,7 @@ size_t ZSTD_compressBlock_greedy_dictMatchState(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
         void const* src, size_t srcSize)
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_generic(ms, seqStore, rep, src, srcSize, 0, 0, ZSTD_dictMatchState);
 }
 
@@ -1188,6 +1353,7 @@ size_t ZSTD_compressBlock_greedy_extDict(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
         void const* src, size_t srcSize)
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_extDict_generic(ms, seqStore, rep, src, srcSize, 0, 0);
 }
 
@@ -1196,6 +1362,7 @@ size_t ZSTD_compressBlock_lazy_extDict(
         void const* src, size_t srcSize)
 
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_extDict_generic(ms, seqStore, rep, src, srcSize, 0, 1);
 }
 
@@ -1204,6 +1371,7 @@ size_t ZSTD_compressBlock_lazy2_extDict(
         void const* src, size_t srcSize)
 
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_extDict_generic(ms, seqStore, rep, src, srcSize, 0, 2);
 }
 
@@ -1212,5 +1380,6 @@ size_t ZSTD_compressBlock_btlazy2_extDict(
         void const* src, size_t srcSize)
 
 {
+    assert(0);
     return ZSTD_compressBlock_lazy_extDict_generic(ms, seqStore, rep, src, srcSize, 1, 2);
 }
