@@ -99,6 +99,7 @@ size_t ZSTD_compressBlock_fast_generic(
         hashTable[h0] = current0;   /* update hash table */
         hashTable[h1] = current1;   /* update hash table */
 
+
         assert(ip0 + 1 == ip1);
 
         if ((offset_1 > 0) & (MEM_read32(repMatch) == MEM_read32(ip2))) {
@@ -108,15 +109,19 @@ size_t ZSTD_compressBlock_fast_generic(
             offcode = 0;
             goto _match;
         }
-        if ((matchIndex0 > prefixStartIndex) && MEM_read32(match0) == val0) {
-            /* found a regular match */
-            goto _offset;
+        if ((matchIndex0 > prefixStartIndex) & (matchIndex0 < current0)) {
+            if (MEM_read32(match0) == val0) {
+                /* found a regular match */
+                goto _offset;
+            }
         }
-        if ((matchIndex1 > prefixStartIndex) && MEM_read32(match1) == val1) {
-            /* found a regular match after one literal */
-            ip0 = ip1;
-            match0 = match1;
-            goto _offset;
+        if ((matchIndex1 > prefixStartIndex) & (matchIndex1 < current1)) {
+            if (MEM_read32(match1) == val1) {
+                /* found a regular match after one literal */
+                ip0 = ip1;
+                match0 = match1;
+                goto _offset;
+            }
         }
         {
             size_t const step = ((ip0-anchor) >> (kSearchStrength - 1)) + stepSize;

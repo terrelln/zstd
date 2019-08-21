@@ -1372,7 +1372,7 @@ ZSTD_reset_matchState(ZSTD_matchState_t* ms,
     /* table Space */
     DEBUGLOG(4, "reset table : %u", crp!=ZSTDcrp_noMemset);
     assert(((size_t)ptr & 3) == 0);  /* ensure ptr is properly aligned */
-    if (crp!=ZSTDcrp_noMemset) memset(ptr, 0, tableSpace);   /* reset tables only */
+    if (crp!=ZSTDcrp_noMemset && cParams->strategy != ZSTD_fast && cParams->strategy != ZSTD_dfast) memset(ptr, 0, tableSpace);   /* reset tables only */
     ms->hashTable = (U32*)(ptr);
     ms->chainTable = ms->hashTable + hSize;
     ms->hashTable3 = ms->chainTable + chainSize;

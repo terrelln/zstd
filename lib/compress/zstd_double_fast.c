@@ -161,7 +161,7 @@ size_t ZSTD_compressBlock_doubleFast_generic(
             goto _match_stored;
         }
 
-        if (matchIndexL > prefixLowestIndex) {
+        if ((matchIndexL < current) & (matchIndexL > prefixLowestIndex)) {
             /* check prefix long match */
             if (MEM_read64(matchLong) == MEM_read64(ip)) {
                 mLength = ZSTD_count(ip+8, matchLong+8, iend) + 8;
@@ -182,7 +182,7 @@ size_t ZSTD_compressBlock_doubleFast_generic(
                 goto _match_found;
         }   }
 
-        if (matchIndexS > prefixLowestIndex) {
+        if ((matchIndexS < current) & (matchIndexS > prefixLowestIndex)) {
             /* check prefix short match */
             if (MEM_read32(match) == MEM_read32(ip)) {
                 goto _search_next_long;
@@ -209,7 +209,7 @@ _search_next_long:
             hashLong[hl3] = current + 1;
 
             /* check prefix long +1 match */
-            if (matchIndexL3 > prefixLowestIndex) {
+            if ((matchIndexL3 <= current) & (matchIndexL3 > prefixLowestIndex)) {
                 if (MEM_read64(matchL3) == MEM_read64(ip+1)) {
                     mLength = ZSTD_count(ip+9, matchL3+8, iend) + 8;
                     ip++;
