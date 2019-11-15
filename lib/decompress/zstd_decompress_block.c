@@ -847,7 +847,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
             seqState->prevOffset[1] = seqState->prevOffset[0];
             seqState->prevOffset[0] = offset;
         } else {
-            if (LIKELY(ofBits == 0 && llBase != 0)) {
+            if (LIKELY((ofBits == 0) & (llBase != 0))) {
                 offset = seqState->prevOffset[0];
             } else {
                 offset = ofBase + (ofBits ? BIT_readBitsFast(&seqState->DStream, ofBits) : 0);
