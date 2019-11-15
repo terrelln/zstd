@@ -847,10 +847,17 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
             seqState->prevOffset[1] = seqState->prevOffset[0];
             seqState->prevOffset[0] = offset;
         } else {
-            if (LIKELY((ofBits == 0) & (llBase != 0))) {
-                offset = seqState->prevOffset[0];
+            U32 const ll0 = (llBase == 0);
+            if (LIKELY((ofBits == 0))) {
+                if (LIKELY(!ll0))
+                    offset = seqState->prevOffset[0];
+		else {
+                    offset = seqState->prevOffset[1];
+                    seqState->prevOffset[1] = seqState->prevOffset[0];
+                    seqState->prevOffset[0] = offset;
+                }
             } else {
-                offset = ofBase + (ofBits ? BIT_readBitsFast(&seqState->DStream, ofBits) : 0);
+                offset = ofBase + (llBase == 0) + (ofBits ? BIT_readBitsFast(&seqState->DStream, ofBits) : 0);
                 size_t temp = (offset==3) ? seqState->prevOffset[0] - 1 : seqState->prevOffset[offset];
                 temp += !temp;   /* 0 is not valid; input is corrupted; force offset to 1 */
                 if (offset != 1) seqState->prevOffset[2] = seqState->prevOffset[1];
