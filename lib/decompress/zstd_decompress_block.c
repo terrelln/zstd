@@ -715,7 +715,7 @@ size_t ZSTD_execSequence(BYTE* op,
 
     /* Errors and uncommon cases handled here. */
     assert(oLitEnd < oMatchEnd);
-    if (iLitEnd > litLimit || oMatchEnd > oend_w)
+    if (UNLIKELY(iLitEnd > litLimit || oMatchEnd > oend_w))
         return ZSTD_execSequenceEnd(op, oend, sequence, litPtr, litLimit, prefixStart, virtualStart, dictEnd);
 
     /* Assumptions (everything else goes into ZSTD_execSequenceEnd()) */
@@ -729,16 +729,16 @@ size_t ZSTD_execSequence(BYTE* op,
      */
     assert(WILDCOPY_OVERLENGTH >= 16);
     ZSTD_copy16(op, (*litPtr));
-    if (sequence.litLength > 16) {
+    if (UNLIKELY(sequence.litLength > 16)) {
         ZSTD_wildcopy(op+16, (*litPtr)+16, sequence.litLength-16, ZSTD_no_overlap);
     }
     op = oLitEnd;
     *litPtr = iLitEnd;   /* update for next sequence */
 
     /* Copy Match */
-    if (sequence.offset > (size_t)(oLitEnd - prefixStart)) {
+    if (UNLIKELY(sequence.offset > (size_t)(oLitEnd - prefixStart))) {
         /* offset beyond prefix -> go into extDict */
-        RETURN_ERROR_IF(sequence.offset > (size_t)(oLitEnd - virtualStart), corruption_detected);
+        RETURN_ERROR_IF(UNLIKELY(sequence.offset > (size_t)(oLitEnd - virtualStart)), corruption_detected);
         match = dictEnd + (match - prefixStart);
         if (match + sequence.matchLength <= dictEnd) {
             memmove(oLitEnd, match, sequence.matchLength);
@@ -760,7 +760,7 @@ size_t ZSTD_execSequence(BYTE* op,
     /* Nearly all offsets are >= WILDCOPY_VECLEN bytes, which means we can use wildcopy
      * without overlap checking.
      */
-    if (sequence.offset >= WILDCOPY_VECLEN) {
+    if (LIKELY(sequence.offset >= WILDCOPY_VECLEN)) {
         /* We bet on a full wildcopy for matches, since we expect matches to be
          * longer than literals (in general). In silesia, ~10% of matches are longer
          * than 16 bytes.
@@ -849,7 +849,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
 
         if (ofBits <= 1) {
             offset += (llBase==0);
-            if (offset) {
+            if (UNLIKELY(offset)) {
                 size_t temp = (offset==3) ? seqState->prevOffset[0] - 1 : seqState->prevOffset[offset];
                 temp += !temp;   /* 0 is not valid; input is corrupted; force offset to 1 */
                 if (offset != 1) seqState->prevOffset[2] = seqState->prevOffset[1];
@@ -866,17 +866,17 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
         seq.offset = offset;
     }
 
-    seq.matchLength = mlBase
-                    + ((mlBits>0) ? BIT_readBitsFast(&seqState->DStream, mlBits/*>0*/) : 0);  /* <=  16 bits */
+    seq.matchLength = mlBase;
+    if (mlBits > 0) seq.matchLength += BIT_readBitsFast(&seqState->DStream, mlBits/*>0*/);
     if (MEM_32bits() && (mlBits+llBits >= STREAM_ACCUMULATOR_MIN_32-LONG_OFFSETS_MAX_EXTRA_BITS_32))
         BIT_reloadDStream(&seqState->DStream);
-    if (MEM_64bits() && (totalBits >= STREAM_ACCUMULATOR_MIN_64-(LLFSELog+MLFSELog+OffFSELog)))
+    if (MEM_64bits() && UNLIKELY(totalBits >= STREAM_ACCUMULATOR_MIN_64-(LLFSELog+MLFSELog+OffFSELog)))
         BIT_reloadDStream(&seqState->DStream);
     /* Ensure there are enough bits to read the rest of data in 64-bit mode. */
     ZSTD_STATIC_ASSERT(16+LLFSELog+MLFSELog+OffFSELog < STREAM_ACCUMULATOR_MIN_64);
 
-    seq.litLength = llBase
-                  + ((llBits>0) ? BIT_readBitsFast(&seqState->DStream, llBits/*>0*/) : 0);    /* <=  16 bits */
+    seq.litLength = llBase;
+    if (llBits > 0) seq.litLength += BIT_readBitsFast(&seqState->DStream, llBits/*>0*/);
     if (MEM_32bits())
         BIT_reloadDStream(&seqState->DStream);
 
