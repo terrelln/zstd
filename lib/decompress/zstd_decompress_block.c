@@ -899,17 +899,17 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
                 (U32)seq.litLength, (U32)seq.matchLength, (U32)seq.offset);
 
     /* ANS state update */
-    if (0) {
-	    ZSTD_updateFseState(&seqState->stateLL, &seqState->DStream);    /* <=  9 bits */
-	    ZSTD_updateFseState(&seqState->stateML, &seqState->DStream);    /* <=  9 bits */
-	    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
-	    ZSTD_updateFseState(&seqState->stateOffb, &seqState->DStream);  /* <=  8 bits */
-    } else {
-	    ZSTD_updateFseState2(&seqState->stateLL, &seqState->DStream, llDInfo);    /* <=  9 bits */
-	    ZSTD_updateFseState2(&seqState->stateML, &seqState->DStream, mlDInfo);    /* <=  9 bits */
-	    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
-	    ZSTD_updateFseState2(&seqState->stateOffb, &seqState->DStream, ofDInfo);  /* <=  8 bits */
-    }
+#if defined(__GNUC__) && !defined(__clang__)
+    ZSTD_updateFseState(&seqState->stateLL, &seqState->DStream);    /* <=  9 bits */
+    ZSTD_updateFseState(&seqState->stateML, &seqState->DStream);    /* <=  9 bits */
+    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
+    ZSTD_updateFseState(&seqState->stateOffb, &seqState->DStream);  /* <=  8 bits */
+#else
+    ZSTD_updateFseState2(&seqState->stateLL, &seqState->DStream, llDInfo);    /* <=  9 bits */
+    ZSTD_updateFseState2(&seqState->stateML, &seqState->DStream, mlDInfo);    /* <=  9 bits */
+    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
+    ZSTD_updateFseState2(&seqState->stateOffb, &seqState->DStream, ofDInfo);  /* <=  8 bits */
+#endif
 
     return seq;
 }

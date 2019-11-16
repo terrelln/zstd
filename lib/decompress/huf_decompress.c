@@ -337,28 +337,6 @@ HUF_decompress4X1_usingDTable_internal_body(
 
         /* up to 16 symbols per loop (4 symbols per stream) in 64-bit mode */
         for ( ; (endSignal) & (op4 < olimit) ; ) {
-#ifdef __clang__
-            HUF_DECODE_SYMBOLX1_2(op1, &bitD1);
-            HUF_DECODE_SYMBOLX1_1(op1, &bitD1);
-            HUF_DECODE_SYMBOLX1_2(op1, &bitD1);
-            HUF_DECODE_SYMBOLX1_0(op1, &bitD1);
-            HUF_DECODE_SYMBOLX1_2(op2, &bitD2);
-            HUF_DECODE_SYMBOLX1_1(op2, &bitD2);
-            HUF_DECODE_SYMBOLX1_2(op2, &bitD2);
-            HUF_DECODE_SYMBOLX1_0(op2, &bitD2);
-            endSignal &= BIT_reloadDStream(&bitD1);
-            endSignal &= BIT_reloadDStream(&bitD2);
-            HUF_DECODE_SYMBOLX1_2(op3, &bitD3);
-            HUF_DECODE_SYMBOLX1_1(op3, &bitD3);
-            HUF_DECODE_SYMBOLX1_2(op3, &bitD3);
-            HUF_DECODE_SYMBOLX1_0(op3, &bitD3);
-            HUF_DECODE_SYMBOLX1_2(op4, &bitD4);
-            HUF_DECODE_SYMBOLX1_1(op4, &bitD4);
-            HUF_DECODE_SYMBOLX1_2(op4, &bitD4);
-            HUF_DECODE_SYMBOLX1_0(op4, &bitD4);
-            endSignal &= BIT_reloadDStream(&bitD3);
-            endSignal &= BIT_reloadDStream(&bitD4);
-#else
             HUF_DECODE_SYMBOLX1_2(op1, &bitD1);
             HUF_DECODE_SYMBOLX1_2(op2, &bitD2);
             HUF_DECODE_SYMBOLX1_2(op3, &bitD3);
@@ -375,11 +353,10 @@ HUF_decompress4X1_usingDTable_internal_body(
             HUF_DECODE_SYMBOLX1_0(op2, &bitD2);
             HUF_DECODE_SYMBOLX1_0(op3, &bitD3);
             HUF_DECODE_SYMBOLX1_0(op4, &bitD4);
-            endSignal &= BIT_reloadDStream(&bitD1);
-            endSignal &= BIT_reloadDStream(&bitD2);
-            endSignal &= BIT_reloadDStream(&bitD3);
-            endSignal &= BIT_reloadDStream(&bitD4);
-#endif
+            endSignal &= BIT_reloadDStreamFast(&bitD1);
+            endSignal &= BIT_reloadDStreamFast(&bitD2);
+            endSignal &= BIT_reloadDStreamFast(&bitD3);
+            endSignal &= BIT_reloadDStreamFast(&bitD4);
         }
 
         /* check corruption */
