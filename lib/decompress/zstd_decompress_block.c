@@ -736,7 +736,7 @@ size_t ZSTD_execSequence(BYTE* op,
     *litPtr = iLitEnd;   /* update for next sequence */
 
     /* Copy Match */
-    if (UNLIKELY(sequence.offset > (size_t)(oLitEnd - prefixStart))) {
+    if (sequence.offset > (size_t)(oLitEnd - prefixStart)) {
         /* offset beyond prefix -> go into extDict */
         RETURN_ERROR_IF(UNLIKELY(sequence.offset > (size_t)(oLitEnd - virtualStart)), corruption_detected);
         match = dictEnd + (match - prefixStart);
@@ -904,21 +904,11 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
 	    ZSTD_updateFseState(&seqState->stateML, &seqState->DStream);    /* <=  9 bits */
 	    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
 	    ZSTD_updateFseState(&seqState->stateOffb, &seqState->DStream);  /* <=  8 bits */
-    } else if (1) {
+    } else {
 	    ZSTD_updateFseState2(&seqState->stateLL, &seqState->DStream, llDInfo);    /* <=  9 bits */
 	    ZSTD_updateFseState2(&seqState->stateML, &seqState->DStream, mlDInfo);    /* <=  9 bits */
 	    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
 	    ZSTD_updateFseState2(&seqState->stateOffb, &seqState->DStream, ofDInfo);  /* <=  8 bits */
-    } else {
-	    U32 const llNbBits = llDInfo.nbBits;
-	    U32 const mlNbBits = mlDInfo.nbBits;
-	    U32 const ofNbBits = ofDInfo.nbBits;
-	    size_t const llLowBits = BIT_readBits(&seqState->DStream, llNbBits);
-	    size_t const mlLowBits = BIT_readBits(&seqState->DStream, mlNbBits);
-	    size_t const ofLowBits = BIT_readBits(&seqState->DStream, ofNbBits);
-	    seqState->stateLL.state = llDInfo.nextState + llLowBits;
-	    seqState->stateML.state = mlDInfo.nextState + mlLowBits;
-	    seqState->stateOffb.state = ofDInfo.nextState + ofLowBits;
     }
 
     return seq;
@@ -965,10 +955,10 @@ ZSTD_decompressSequences_body( ZSTD_DCtx* dctx,
             seq_t const sequence = ZSTD_decodeSequence(&seqState, isLongOffset);
             size_t const oneSeqSize = ZSTD_execSequence(op, oend, sequence, &litPtr, litEnd, prefixStart, vBase, dictEnd);
             DEBUGLOG(6, "regenerated sequence size : %u", (U32)oneSeqSize);
-            if (UNLIKELY(ZSTD_isError(oneSeqSize))) error = oneSeqSize;
-            else op += oneSeqSize;
             BIT_reloadDStream(&(seqState.DStream));
-            if (!--nbSeq) break;
+            if (UNLIKELY(ZSTD_isError(oneSeqSize))) {error = oneSeqSize; }
+            else op += oneSeqSize;
+            if (UNLIKELY(!--nbSeq)) break;
         }
 
         /* check if reached exact end */
