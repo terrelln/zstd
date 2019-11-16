@@ -802,6 +802,14 @@ ZSTD_updateFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD)
     DStatePtr->state = DInfo.nextState + lowBits;
 }
 
+FORCE_INLINE_TEMPLATE void
+ZSTD_updateFseState2(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, ZSTD_seqSymbol const DInfo)
+{
+    U32 const nbBits = DInfo.nbBits;
+    size_t const lowBits = BIT_readBits(bitD, nbBits);
+    DStatePtr->state = DInfo.nextState + lowBits;
+}
+
 /* We need to add at most (ZSTD_WINDOWLOG_MAX_32 - 1) bits to read the maximum
  * offset bits. But we can only read at most (STREAM_ACCUMULATOR_MIN_32 - 1)
  * bits before reloading. This value is the maximum number of bytes we read
@@ -819,13 +827,16 @@ FORCE_INLINE_TEMPLATE seq_t
 ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
 {
     seq_t seq;
-    U32 const llBits = seqState->stateLL.table[seqState->stateLL.state].nbAdditionalBits;
-    U32 const mlBits = seqState->stateML.table[seqState->stateML.state].nbAdditionalBits;
-    U32 const ofBits = seqState->stateOffb.table[seqState->stateOffb.state].nbAdditionalBits;
-    U32 const totalBits = llBits+mlBits+ofBits;
-    U32 const llBase = seqState->stateLL.table[seqState->stateLL.state].baseValue;
-    U32 const mlBase = seqState->stateML.table[seqState->stateML.state].baseValue;
-    U32 const ofBase = seqState->stateOffb.table[seqState->stateOffb.state].baseValue;
+    ZSTD_seqSymbol const llDInfo = seqState->stateLL.table[seqState->stateLL.state];
+    ZSTD_seqSymbol const mlDInfo = seqState->stateML.table[seqState->stateML.state];
+    ZSTD_seqSymbol const ofDInfo = seqState->stateOffb.table[seqState->stateOffb.state];
+    U32 const llBase = llDInfo.baseValue;
+    U32 const mlBase = mlDInfo.baseValue;
+    U32 const ofBase = ofDInfo.baseValue;
+    BYTE const llBits = llDInfo.nbAdditionalBits;
+    BYTE const mlBits = mlDInfo.nbAdditionalBits;
+    BYTE const ofBits = ofDInfo.nbAdditionalBits;
+    BYTE const totalBits = llBits+mlBits+ofBits;
 
     /* sequence */
     {   size_t offset;
@@ -857,7 +868,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
                     seqState->prevOffset[0] = offset;
                 }
             } else {
-                offset = ofBase + (llBase == 0) + (ofBits ? BIT_readBitsFast(&seqState->DStream, ofBits) : 0);
+                offset = ofBase + ll0 + BIT_readBitsFast(&seqState->DStream, 1);
                 size_t temp = (offset==3) ? seqState->prevOffset[0] - 1 : seqState->prevOffset[offset];
                 temp += !temp;   /* 0 is not valid; input is corrupted; force offset to 1 */
                 if (offset != 1) seqState->prevOffset[2] = seqState->prevOffset[1];
@@ -888,10 +899,27 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
                 (U32)seq.litLength, (U32)seq.matchLength, (U32)seq.offset);
 
     /* ANS state update */
-    ZSTD_updateFseState(&seqState->stateLL, &seqState->DStream);    /* <=  9 bits */
-    ZSTD_updateFseState(&seqState->stateML, &seqState->DStream);    /* <=  9 bits */
-    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
-    ZSTD_updateFseState(&seqState->stateOffb, &seqState->DStream);  /* <=  8 bits */
+    if (0) {
+	    ZSTD_updateFseState(&seqState->stateLL, &seqState->DStream);    /* <=  9 bits */
+	    ZSTD_updateFseState(&seqState->stateML, &seqState->DStream);    /* <=  9 bits */
+	    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
+	    ZSTD_updateFseState(&seqState->stateOffb, &seqState->DStream);  /* <=  8 bits */
+    } else if (1) {
+	    ZSTD_updateFseState2(&seqState->stateLL, &seqState->DStream, llDInfo);    /* <=  9 bits */
+	    ZSTD_updateFseState2(&seqState->stateML, &seqState->DStream, mlDInfo);    /* <=  9 bits */
+	    if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);    /* <= 18 bits */
+	    ZSTD_updateFseState2(&seqState->stateOffb, &seqState->DStream, ofDInfo);  /* <=  8 bits */
+    } else {
+	    U32 const llNbBits = llDInfo.nbBits;
+	    U32 const mlNbBits = mlDInfo.nbBits;
+	    U32 const ofNbBits = ofDInfo.nbBits;
+	    size_t const llLowBits = BIT_readBits(&seqState->DStream, llNbBits);
+	    size_t const mlLowBits = BIT_readBits(&seqState->DStream, mlNbBits);
+	    size_t const ofLowBits = BIT_readBits(&seqState->DStream, ofNbBits);
+	    seqState->stateLL.state = llDInfo.nextState + llLowBits;
+	    seqState->stateML.state = mlDInfo.nextState + mlLowBits;
+	    seqState->stateOffb.state = ofDInfo.nextState + ofLowBits;
+    }
 
     return seq;
 }
