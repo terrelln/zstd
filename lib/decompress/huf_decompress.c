@@ -280,7 +280,7 @@ HUF_decompress1X1_usingDTable_internal_body(
 
 MEM_STATIC int BIT_reloadDStreamFast(BIT_DStream_t* bitD)
 {
-    assert(bitD->bitsConsumed <= (sizeof(bitD->bitContainer)*8));
+    // assert(bitD->bitsConsumed <= (sizeof(bitD->bitContainer)*8));
     if (UNLIKELY(bitD->ptr < bitD->limitPtr)) return 0;
     bitD->ptr -= bitD->bitsConsumed >> 3;
     bitD->bitsConsumed &= 7;
