@@ -562,16 +562,19 @@ typedef struct {
     const ZSTD_seqSymbol* table;
 } ZSTD_fseState;
 
+#include <smmintrin.h>
+
 typedef struct {
     BIT_DStream_t DStream;
     ZSTD_fseState stateLL;
     ZSTD_fseState stateOffb;
     ZSTD_fseState stateML;
-    size_t prevOffset[ZSTD_REP_NUM];
+    __m128i prevOffset;
     const BYTE* prefixStart;
     const BYTE* dictEnd;
     size_t pos;
 } seqState_t;
+
 
 /*! ZSTD_overlapCopy8() :
  *  Copies 8 bytes from ip to op and updates op and ip where ip <= op.
@@ -814,6 +817,83 @@ ZSTD_updateFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD)
 
 typedef enum { ZSTD_lo_isRegularOffset, ZSTD_lo_isLongOffset=1 } ZSTD_longOffset_e;
 
+static __m128i toVector(U32 const* reps) {
+    U32 tmp[4] = {};
+    memcpy(tmp, reps, 3 * sizeof(*tmp));
+    return _mm_loadu_si128((__m128i const*)tmp);
+}
+
+static void fromVector(__m128i const v, U32* reps) {
+    U32 tmp[4];
+    _mm_storeu_si128((__m128i*)tmp, v);
+    memcpy(reps, tmp, 3 * sizeof(*tmp));
+}
+
+static __m128i addNewOffset(__m128i v, U32 offset) {
+#if 0
+    return _mm_loadu_si32(&offset);
+#elif 0
+    return _mm_or_si128(v, _mm_set_epi32(offset, 0, 0, 0));
+#else
+    return _mm_insert_epi32(v, offset, 3);
+#endif
+}
+
+static U32 getNewOffset(__m128i v) {
+#if 0
+    return _mm_extract_epi32(v, 0);
+#else
+    return _mm_extract_epi32(v, 0);
+#endif
+}
+
+#if 1
+static __attribute__((aligned(16))) const char OF_shuf[5][16] = {
+    /* rep0: r0 r1 r2 r0 */ {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0xFF, 0xFF, 0xFF, 0xFF},
+    /* rep1: r1 r0 r2 r1 */ {4, 5, 6, 7, 0, 1, 2, 3, 8, 9, 10, 11, 0xFF, 0xFF, 0xFF, 0xFF},
+    /* rep2: r2 r0 r1 r2 */ {8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 0xFF, 0xFF, 0xFF, 0xFF},
+    /* rep3: r3 r0 r1 r3 */ {12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 0xFF, 0xFF, 0xFF, 0xFF},
+    /* rep3: r3 r0 r1 r3 */ {12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 0xFF, 0xFF, 0xFF, 0xFF},
+    // /* off : of r0 r1 of */ { 3,  2,  1,  0, 15, 14, 13, 12, 11, 10,  9,  8,  3,  2,  1,  0},
+};
+
+static __m128i shuffleOffsets(__m128i v, int code) {
+    assert(code < 5);
+    return _mm_shuffle_epi8(v, _mm_load_si128((__m128i const*)(void const*)OF_shuf[code]));
+}
+#else
+static __m128i shuffleOffsets(__m128i v, int code) {
+    switch (code) {
+    case 0:
+        return _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 2, 1, 0));
+    case 1:
+        return _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 2, 0, 1));
+    case 2:
+        return _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 1, 0, 2));
+    default:
+        return _mm_shuffle_epi32(v, _MM_SHUFFLE(2, 1, 0, 3));
+    }
+}
+#endif
+
+// static const U32 OF_repBase[MaxOff+1] = {
+//                  0,        1,       3,       3,     3,     3,     3,     3,
+//                  3,   3,   3,   3,   3,   3,   3,   3,
+//                  3, 3, 3, 3, 3, 3, 3, 3,
+//                  3, 3, 3, 3, 3, 3, 3, 3 };
+
+// static const U32 OF_repBits[MaxOff+1] = {
+//                      0,  1,  0,  0,  0,  0,  0,  0,
+//                      0,  0, 0, 0, 0, 0, 0, 0,
+//                     0, 0, 0, 0, 0, 0, 0, 0,
+//                     0, 0, 0, 0, 0, 0, 0, 0 };
+
+// static const U32 OF_repLL0[MaxOff+1] = {
+//                      1,  1,  0,  0,  0,  0,  0,  0,
+//                      0,  0, 0, 0, 0, 0, 0, 0,
+//                     0, 0, 0, 0, 0, 0, 0, 0,
+//                     0, 0, 0, 0, 0, 0, 0, 0 };
+
 #ifndef ZSTD_FORCE_DECOMPRESS_SEQUENCES_LONG
 FORCE_INLINE_TEMPLATE seq_t
 ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
@@ -828,42 +908,14 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets)
     U32 const ofBase = seqState->stateOffb.table[seqState->stateOffb.state].baseValue;
 
     /* sequence */
-    {   size_t offset;
-        if (!ofBits)
-            offset = 0;
-        else {
-            ZSTD_STATIC_ASSERT(ZSTD_lo_isLongOffset == 1);
-            ZSTD_STATIC_ASSERT(LONG_OFFSETS_MAX_EXTRA_BITS_32 == 5);
-            assert(ofBits <= MaxOff);
-            if (MEM_32bits() && longOffsets && (ofBits >= STREAM_ACCUMULATOR_MIN_32)) {
-                U32 const extraBits = ofBits - MIN(ofBits, 32 - seqState->DStream.bitsConsumed);
-                offset = ofBase + (BIT_readBitsFast(&seqState->DStream, ofBits - extraBits) << extraBits);
-                BIT_reloadDStream(&seqState->DStream);
-                if (extraBits) offset += BIT_readBitsFast(&seqState->DStream, extraBits);
-                assert(extraBits <= LONG_OFFSETS_MAX_EXTRA_BITS_32);   /* to avoid another reload */
-            } else {
-                offset = ofBase + BIT_readBitsFast(&seqState->DStream, ofBits/*>0*/);   /* <=  (ZSTD_WINDOWLOG_MAX-1) bits */
-                if (MEM_32bits()) BIT_reloadDStream(&seqState->DStream);
-            }
-        }
-
-        if (ofBits <= 1) {
-            offset += (llBase==0);
-            if (offset) {
-                size_t temp = (offset==3) ? seqState->prevOffset[0] - 1 : seqState->prevOffset[offset];
-                temp += !temp;   /* 0 is not valid; input is corrupted; force offset to 1 */
-                if (offset != 1) seqState->prevOffset[2] = seqState->prevOffset[1];
-                seqState->prevOffset[1] = seqState->prevOffset[0];
-                seqState->prevOffset[0] = offset = temp;
-            } else {  /* offset == 0 */
-                offset = seqState->prevOffset[0];
-            }
-        } else {
-            seqState->prevOffset[2] = seqState->prevOffset[1];
-            seqState->prevOffset[1] = seqState->prevOffset[0];
-            seqState->prevOffset[0] = offset;
-        }
-        seq.offset = offset;
+    {
+        U32 const offset = ofBase + BIT_readBits(&seqState->DStream, ofBits);
+        U32 const code = (ofBits <= 1 ? offset : 3) + (llBase == 0);
+        __m128i offsets = seqState->prevOffset;
+        offsets = addNewOffset(offsets, offset);
+        offsets = shuffleOffsets(offsets, code);
+        seqState->prevOffset = offsets;
+        seq.offset = getNewOffset(offsets);
     }
 
     seq.matchLength = mlBase
@@ -915,7 +967,7 @@ ZSTD_decompressSequences_body( ZSTD_DCtx* dctx,
     if (nbSeq) {
         seqState_t seqState;
         dctx->fseEntropy = 1;
-        { U32 i; for (i=0; i<ZSTD_REP_NUM; i++) seqState.prevOffset[i] = dctx->entropy.rep[i]; }
+        seqState.prevOffset = toVector(dctx->entropy.rep);
         RETURN_ERROR_IF(
             ERR_isError(BIT_initDStream(&seqState.DStream, ip, iend-ip)),
             corruption_detected);
@@ -942,7 +994,7 @@ ZSTD_decompressSequences_body( ZSTD_DCtx* dctx,
         RETURN_ERROR_IF(nbSeq, corruption_detected);
         RETURN_ERROR_IF(BIT_reloadDStream(&seqState.DStream) < BIT_DStream_completed, corruption_detected);
         /* save reps for next block */
-        { U32 i; for (i=0; i<ZSTD_REP_NUM; i++) dctx->entropy.rep[i] = (U32)(seqState.prevOffset[i]); }
+        fromVector(seqState.prevOffset, dctx->entropy.rep);
     }
 
     /* last literal segment */
