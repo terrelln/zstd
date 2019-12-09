@@ -43,6 +43,13 @@ extern "C" {
                                        This constant is required by ZSTD_compressBlock_btlazy2() and ZSTD_reduceTable_internal() */
 
 
+
+void Hinit(void);
+
+void Hmatch(U32 base, U32 current, U32 match, U32 mlen);
+
+void Hdump(char const* file);
+
 /*-*************************************
 *  Context memory management
 ***************************************/

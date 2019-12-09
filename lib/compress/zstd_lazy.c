@@ -637,6 +637,7 @@ ZSTD_compressBlock_lazy_generic(
     const BYTE* const base = ms->window.base;
     const U32 prefixLowestIndex = ms->window.dictLimit;
     const BYTE* const prefixLowest = base + prefixLowestIndex;
+    U32 const mbase = ms->window.lowLimit;
 
     typedef size_t (*searchMax_f)(
                         ZSTD_matchState_t* ms,
@@ -810,6 +811,8 @@ ZSTD_compressBlock_lazy_generic(
         /* store sequence */
 _storeSequence:
         {   size_t const litLength = start - anchor;
+            if (offset != 0)
+              Hmatch(mbase, (start - base), (start - base) - (offset - ZSTD_REP_MOVE), matchLength);
             ZSTD_storeSeq(seqStore, litLength, anchor, iend, (U32)offset, matchLength-MINMATCH);
             anchor = ip = start + matchLength;
         }
@@ -828,6 +831,7 @@ _storeSequence:
                     const BYTE* const repEnd2 = repIndex < prefixLowestIndex ? dictEnd : iend;
                     matchLength = ZSTD_count_2segments(ip+4, repMatch+4, iend, repEnd2, prefixLowest) + 4;
                     offset = offset_2; offset_2 = offset_1; offset_1 = (U32)offset;   /* swap offset_2 <=> offset_1 */
+                    // Hmatch(mbase, ip-base, matchLength);
                     ZSTD_storeSeq(seqStore, 0, anchor, iend, 0, matchLength-MINMATCH);
                     ip += matchLength;
                     anchor = ip;
@@ -843,6 +847,7 @@ _storeSequence:
                 /* store sequence */
                 matchLength = ZSTD_count(ip+4, ip+4-offset_2, iend) + 4;
                 offset = offset_2; offset_2 = offset_1; offset_1 = (U32)offset; /* swap repcodes */
+                // Hmatch(mbase, (ip - base), matchLength);
                 ZSTD_storeSeq(seqStore, 0, anchor, iend, 0, matchLength-MINMATCH);
                 ip += matchLength;
                 anchor = ip;
@@ -1051,6 +1056,8 @@ size_t ZSTD_compressBlock_lazy_extDict_generic(
         /* store sequence */
 _storeSequence:
         {   size_t const litLength = start - anchor;
+            if (offset != 0)
+              Hmatch(lowestIndex, (start - base), (start - base) - (offset - ZSTD_REP_MOVE), matchLength);
             ZSTD_storeSeq(seqStore, litLength, anchor, iend, (U32)offset, matchLength-MINMATCH);
             anchor = ip = start + matchLength;
         }
@@ -1066,6 +1073,7 @@ _storeSequence:
                 const BYTE* const repEnd = repIndex < dictLimit ? dictEnd : iend;
                 matchLength = ZSTD_count_2segments(ip+4, repMatch+4, iend, repEnd, prefixStart) + 4;
                 offset = offset_2; offset_2 = offset_1; offset_1 = (U32)offset;   /* swap offset history */
+                // Hmatch(lowestIndex, ip-base, matchLength);
                 ZSTD_storeSeq(seqStore, 0, anchor, iend, 0, matchLength-MINMATCH);
                 ip += matchLength;
                 anchor = ip;

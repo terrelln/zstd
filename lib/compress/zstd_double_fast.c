@@ -54,6 +54,7 @@ size_t ZSTD_compressBlock_doubleFast_generic(
         U32 const mls /* template */, ZSTD_dictMode_e const dictMode)
 {
     ZSTD_compressionParameters const* cParams = &ms->cParams;
+    U32 const ll = ms->window.lowLimit;
     U32* const hashLong = ms->hashTable;
     const U32 hBitsL = cParams->hashLog;
     U32* const hashSmall = ms->chainTable;
@@ -247,6 +248,7 @@ _match_found:
         offset_2 = offset_1;
         offset_1 = offset;
 
+        Hmatch(ll, (ip - base), (ip - base) - offset, mLength);
         ZSTD_storeSeq(seqStore, (size_t)(ip-anchor), anchor, iend, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
 
 _match_stored:
@@ -378,6 +380,7 @@ static size_t ZSTD_compressBlock_doubleFast_extDict_generic(
     const BYTE* const dictBase = ms->window.dictBase;
     const BYTE* const dictStart = dictBase + dictStartIndex;
     const BYTE* const dictEnd = dictBase + prefixStartIndex;
+    U32 const ll = ms->window.lowLimit;
     U32 offset_1=rep[0], offset_2=rep[1];
 
     DEBUGLOG(5, "ZSTD_compressBlock_doubleFast_extDict_generic (srcSize=%zu)", srcSize);
@@ -422,6 +425,8 @@ static size_t ZSTD_compressBlock_doubleFast_extDict_generic(
                 while (((ip>anchor) & (matchLong>lowMatchPtr)) && (ip[-1] == matchLong[-1])) { ip--; matchLong--; mLength++; }   /* catch up */
                 offset_2 = offset_1;
                 offset_1 = offset;
+
+                Hmatch(ll, (ip - base), (ip - base) - offset, mLength);
                 ZSTD_storeSeq(seqStore, (size_t)(ip-anchor), anchor, iend, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
 
             } else if ((matchIndex > dictStartIndex) && (MEM_read32(match) == MEM_read32(ip))) {
@@ -447,6 +452,7 @@ static size_t ZSTD_compressBlock_doubleFast_extDict_generic(
                 }
                 offset_2 = offset_1;
                 offset_1 = offset;
+                Hmatch(ll, (ip - base), (ip - base) - offset, mLength);
                 ZSTD_storeSeq(seqStore, (size_t)(ip-anchor), anchor, iend, offset + ZSTD_REP_MOVE, mLength-MINMATCH);
 
             } else {

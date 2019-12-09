@@ -31,6 +31,128 @@
 #include "zstd_compress_superblock.h"
 
 
+static int const kMaxInputSize = 1 << 28;
+#define kMIN 10
+#define kMID 10
+#define kMAX 10
+
+struct state {
+  U32* map;
+  U32 hist[kMIN + kMAX + 1];
+  U32 missed;
+  U32 total;
+};
+
+static struct state begin = {};
+static struct state end = {};
+
+#include <stdlib.h>
+
+static void Sinit(struct state* state) {
+  if (state->map == NULL) {
+    state->map = (U32*)calloc(kMaxInputSize, sizeof(U32));
+    assert(state->map);
+  } else {
+    memset(state->map, 0, kMaxInputSize * sizeof(U32));
+  }
+  memset(state->hist, 0, sizeof(state->hist));
+  state->missed = 0;
+  state->total = 0;
+}
+
+void Hinit(void) {
+  Sinit(&begin);
+  Sinit(&end);
+}
+
+#define ALL 0
+#if ALL
+static void Smatch(struct state* state, U32 base, U32 searchIdx, U32 mapIdx) {
+  U32 const pos = searchIdx - base;
+  U32 const mpos = mapIdx - base;
+  U32 const min = pos > kMIN ? pos - kMIN : 0;
+  U32 const max = pos + kMAX;
+  U32 p;
+  if (max >= kMaxInputSize || state->map == NULL) {
+    assert(0);
+    return;
+  }
+  for (p = min; p <= max; ++p) {
+    state->hist[p - min] += state->map[p];
+  }
+  ++state->map[mpos];
+}
+
+void Hmatch(U32 base, U32 idx, U32 mlen) {
+  Smatch(&begin, base, idx);
+  Smatch(&end, base, idx + mlen);
+}
+#else
+static int Smatch(struct state* state, U32 base, U32 current, U32 match, U32 mlen) {
+  int const pos = match - base;
+  int const mpos = current - base;
+  int const min = pos > kMIN ? pos - kMIN : 0;
+  int const max = pos + kMAX;
+  int off;
+  int found = kMIN + kMAX + 1;
+  if (max >= kMaxInputSize || state->map == NULL) {
+    assert(0);
+    return 0;
+  }
+  for (off = 0; off <= MAX(kMIN, kMAX); ++off) {
+    int const p0 = pos + off;
+    int const p1 = pos - off;
+    if (p0 <= max && state->map[p0]) {
+      ++state->hist[p0 - min];
+      found = off;
+      break;
+    }
+    if (p1 >= min && state->map[p1]) {
+      ++state->hist[p1 - min];
+      found = -off;
+      break;
+    }
+  }
+  if (found == kMIN + kMAX + 1 && mlen < 20) {
+    ++state->missed;
+  }
+  ++state->total;
+  ++state->map[mpos];
+  return found;
+}
+
+void Hmatch(U32 base, U32 current, U32 match, U32 mlen) {
+  int const found = Smatch(&begin, base, current, match, mlen);
+  if (!(found >= 0 && found <= 2)) {
+    Smatch(&end, base, current + mlen, match, mlen);
+  }
+}
+#endif
+
+#include <stdio.h>
+
+static void Sdump(struct state* state, char const* file, char const* suffix) {
+  char filename[1000];
+  file = file ? file : "zstd-compress";
+  snprintf(filename, sizeof(filename), "%s.match-stats-%s", file, suffix);
+  fprintf(stderr, "dumping to %s\n", filename);
+  {
+    FILE* f = fopen(filename, "w");
+    int i;
+    assert(f);
+    fprintf(f, "pos, count\n");
+    fprintf(f, "missed, %f\n", ((float)state->missed * 100) / state->total);
+    for (i = 0; i <= kMIN + kMAX; ++i) {
+      fprintf(f, "%d, %d\n", -(i - kMID), state->hist[i]);
+    }
+    fclose(f);
+  }
+}
+
+void Hdump(char const* file) {
+  Sdump(&begin, file, "begin");
+  Sdump(&end, file, "end");
+}
 /*-*************************************
 *  Helper functions
 ***************************************/

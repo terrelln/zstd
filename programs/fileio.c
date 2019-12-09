@@ -1101,6 +1101,8 @@ FIO_compressLz4Frame(cRess_t* ress,
 }
 #endif
 
+void Hinit(void);
+void Hdump(char const* file);
 
 static unsigned long long
 FIO_compressZstdFrame(FIO_prefs_t* const prefs,
@@ -1125,6 +1127,7 @@ FIO_compressZstdFrame(FIO_prefs_t* const prefs,
     unsigned lastJobID = 0;
 
     DISPLAYLEVEL(6, "compression using zstd format \n");
+    Hinit();
 
     /* init */
     if (fileSize != UTIL_FILESIZE_UNKNOWN) {
@@ -1290,6 +1293,7 @@ FIO_compressZstdFrame(FIO_prefs_t* const prefs,
         EXM_THROW(27, "Read error : Incomplete read : %llu / %llu B",
                 (unsigned long long)*readsize, (unsigned long long)fileSize);
     }
+    Hdump(srcFileName);
 
     return compressedfilesize;
 }

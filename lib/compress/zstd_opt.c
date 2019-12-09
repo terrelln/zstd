@@ -862,6 +862,7 @@ ZSTD_compressBlock_opt_generic(ZSTD_matchState_t* ms,
     const BYTE* const iend = istart + srcSize;
     const BYTE* const ilimit = iend - 8;
     const BYTE* const base = ms->window.base;
+    U32 const mbase = ms->window.lowLimit;
     const BYTE* const prefixStart = base + ms->window.dictLimit;
     const ZSTD_compressionParameters* const cParams = &ms->cParams;
 
@@ -1098,6 +1099,10 @@ _shortestPath:   /* cur, last_pos, best_mlen, best_off have to be set */
 
                     assert(anchor + llen <= iend);
                     ZSTD_updateStats(optStatePtr, llen, anchor, offCode, mlen);
+                    if (offCode >= ZSTD_REP_NUM) {
+                      U32 const c = anchor + llen - base;
+                      Hmatch(mbase, c, c - (offCode - ZSTD_REP_MOVE), mlen);
+                    }
                     ZSTD_storeSeq(seqStore, llen, anchor, iend, offCode, mlen-MINMATCH);
                     anchor += advance;
                     ip = anchor;
