@@ -83,17 +83,22 @@ typedef struct {
 } ZSTD_entropyCTables_t;
 
 typedef struct {
+    U32 arrival;
     U32 off;
     U32 len;
 } ZSTD_match_t;
 
 typedef struct {
     int price;
+    U32 arrival;
     U32 off;
     U32 mlen;
     U32 litlen;
     U32 rep[ZSTD_REP_NUM];
 } ZSTD_optimal_t;
+
+#define ARRIVALS 8
+typedef ZSTD_optimal_t ZSTD_opt4_t[ARRIVALS];
 
 typedef enum { zop_dynamic=0, zop_predef } ZSTD_OptPrice_e;
 
@@ -104,7 +109,7 @@ typedef struct {
     unsigned* matchLengthFreq;   /* table of matchLength statistics, of size (MaxML+1) */
     unsigned* offCodeFreq;       /* table of offCode statistics, of size (MaxOff+1) */
     ZSTD_match_t* matchTable;    /* list of found matches, of size ZSTD_OPT_NUM+1 */
-    ZSTD_optimal_t* priceTable;  /* All positions tracked by optimal parser, of size ZSTD_OPT_NUM+1 */
+    ZSTD_opt4_t* priceTable;  /* All positions tracked by optimal parser, of size ZSTD_OPT_NUM+1 */
 
     U32  litSum;                 /* nb of literals */
     U32  litLengthSum;           /* nb of litLength codes */
