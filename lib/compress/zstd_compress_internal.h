@@ -82,7 +82,14 @@ typedef struct {
     ZSTD_fseCTables_t fse;
 } ZSTD_entropyCTables_t;
 
+typedef enum {
+    ZSTD_d_limit,
+    ZSTD_d_smaller = 0,
+    ZSTD_d_larger = 1,
+} ZSTD_dir_e;
 typedef struct {
+    ZSTD_dir_e dir;
+    U32 idx;
     U32 off;
     U32 len;
 } ZSTD_match_t;
