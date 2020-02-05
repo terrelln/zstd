@@ -193,6 +193,7 @@ static const U32 OF_defaultNormLog = OF_DEFAULTNORMLOG;
 /*-*******************************************
 *  Shared functions to include for inlining
 *********************************************/
+static void ZSTD_copy4(void* dst, const void* src) { memcpy(dst, src, 4); }
 static void ZSTD_copy8(void* dst, const void* src) { memcpy(dst, src, 8); }
 
 #define COPY8(d,s) { ZSTD_copy8(d,s); d+=8; s+=8; }
@@ -208,14 +209,101 @@ typedef enum {
     /*  ZSTD_overlap_dst_before_src, */
 } ZSTD_overlap_e;
 
+#if ZSTD_HAVE_SSSE3
+#include <tmmintrin.h>
+
+// This is a table of shuffle control masks that can be used as the source
+// operand for PSHUFB to permute the contents of the destination XMM register
+// into a repeating byte pattern.
+static size_t kPatternSizes[15] = {16, 16, 15, 16, 15, 12, 14, 16,
+                                   9,  10, 11, 12, 13, 14, 15};
+
+static const char kPshufbFillPatterns[15][16] __attribute__((aligned(16))) = {
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    {0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
+    {0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0},
+    {0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3},
+    {0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0},
+    {0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3},
+    {0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1},
+    {0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 3, 4, 5, 6},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 1, 2, 3, 4},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 1, 2},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0},
+};
+
+#endif
+
+/*! ZSTD_expandOverlap8() :
+ *  Copies 8 bytes from ip to op and updates op and ip where ip <= op.
+ *  If the offset is < 8 then the offset is spread to at least 8 bytes.
+ *
+ *  Precondition: *ip <= *op
+ *  Postcondition: *op - *ip >= 8
+ */
+MEM_STATIC FORCE_INLINE_ATTR void ZSTD_expandOverlap8(BYTE** op, BYTE const** ip, size_t offset) {
+    assert(*ip <= *op);
+    if (offset < 8) {
+        /* close range match, overlap */
+        static const U32 dec32table[] = { 0, 1, 2, 1, 4, 4, 4, 4 };   /* added */
+        static const int dec64table[] = { 8, 8, 8, 7, 8, 9,10,11 };   /* subtracted */
+        int const sub2 = dec64table[offset];
+        (*op)[0] = (*ip)[0];
+        (*op)[1] = (*ip)[1];
+        (*op)[2] = (*ip)[2];
+        (*op)[3] = (*ip)[3];
+        *ip += dec32table[offset];
+        ZSTD_copy4(*op+4, *ip);
+        *ip -= sub2;
+    } else {
+        ZSTD_copy8(*op, *ip);
+    }
+    *ip += 8;
+    *op += 8;
+    assert(*op - *ip >= 8);
+}
+
+/*! ZSTD_wildcopyOverlap():
+ *  Wildcopy helper that handles the case where ZSTD_overlap_src_before_dst and offset < 16.
+ *  Like wildcopy this function can over read/write up to WILDCOPY_OVERLENGTH bytes.
+ *  NOTE: This function ONLY works for offset < 16.
+ */
+HINT_INLINE void ZSTD_wildcopyOverlap(BYTE* op, BYTE const* ip, ptrdiff_t length, size_t offset) {
+    assert(ip <= op);
+    assert(offset < 16);
+#if ZSTD_HAVE_SSSE3
+    {
+        __m128i const shuffleMask = _mm_load_si128((const __m128i*)(kPshufbFillPatterns) + offset - 1);
+        __m128i const pattern = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)ip), shuffleMask);
+        size_t const patternSize = kPatternSizes[offset - 1];
+        BYTE* const oend = op + length;
+        do {
+          _mm_storeu_si128((__m128i*)op, pattern);
+          op += patternSize;
+        } while (op < oend);
+    }
+#else
+    ZSTD_expandOverlap8(&op, &ip, offset);
+    if (length > 8) {
+        BYTE* const oend = op + length - 8;
+        do {
+          COPY8(op, ip);
+        } while (op < oend);
+    }
+#endif
+}
+
 /*! ZSTD_wildcopy() :
  *  Custom version of memcpy(), can over read/write up to WILDCOPY_OVERLENGTH bytes (if length==0)
  *  @param ovtype controls the overlap detection
  *         - ZSTD_no_overlap: The source and destination are guaranteed to be at least WILDCOPY_VECLEN bytes apart.
- *         - ZSTD_overlap_src_before_dst: The src and dst may overlap, but they MUST be at least 8 bytes apart.
- *           The src buffer must be before the dst buffer.
+ *         - ZSTD_overlap_src_before_dst: The src and dst may overlap. The src buffer must be before the dst buffer.
  */
-MEM_STATIC FORCE_INLINE_ATTR 
+MEM_STATIC FORCE_INLINE_ATTR FLATTEN_ATTR
 void ZSTD_wildcopy(void* dst, const void* src, ptrdiff_t length, ZSTD_overlap_e const ovtype)
 {
     ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
@@ -223,20 +311,18 @@ void ZSTD_wildcopy(void* dst, const void* src, ptrdiff_t length, ZSTD_overlap_e 
     BYTE* op = (BYTE*)dst;
     BYTE* const oend = op + length;
 
-    assert(diff >= 8 || (ovtype == ZSTD_no_overlap && diff <= -WILDCOPY_VECLEN));
+    // assert(diff >= 8 || (ovtype == ZSTD_no_overlap && diff <= -WILDCOPY_VECLEN));
 
     if (ovtype == ZSTD_overlap_src_before_dst && diff < WILDCOPY_VECLEN) {
         /* Handle short offset copies. */
-        do {
-            COPY8(op, ip)
-        } while (op < oend);
+        ZSTD_wildcopyOverlap(op, ip, length, diff);
     } else {
         assert(diff >= WILDCOPY_VECLEN || diff <= -WILDCOPY_VECLEN);
         /* Separate out the first COPY16() call because the copy length is
          * almost certain to be short, so the branches have different
          * probabilities. Since it is almost certain to be short, only do
-	 * one COPY16() in the first call. Then, do two calls per loop since
-	 * at that point it is more likely to have a high trip count.
+	       * one COPY16() in the first call. Then, do two calls per loop since
+	       * at that point it is more likely to have a high trip count.
          */
         COPY16(op, ip);
         if (op >= oend) return;

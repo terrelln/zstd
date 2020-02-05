@@ -41,12 +41,6 @@
 #endif
 
 
-/*_*******************************************************
-*  Memory operations
-**********************************************************/
-static void ZSTD_copy4(void* dst, const void* src) { memcpy(dst, src, 4); }
-
-
 /*-*************************************************************
  *   Block decoding
  ***************************************************************/
@@ -573,35 +567,6 @@ typedef struct {
     size_t pos;
 } seqState_t;
 
-/*! ZSTD_overlapCopy8() :
- *  Copies 8 bytes from ip to op and updates op and ip where ip <= op.
- *  If the offset is < 8 then the offset is spread to at least 8 bytes.
- *
- *  Precondition: *ip <= *op
- *  Postcondition: *op - *op >= 8
- */
-HINT_INLINE void ZSTD_overlapCopy8(BYTE** op, BYTE const** ip, size_t offset) {
-    assert(*ip <= *op);
-    if (offset < 8) {
-        /* close range match, overlap */
-        static const U32 dec32table[] = { 0, 1, 2, 1, 4, 4, 4, 4 };   /* added */
-        static const int dec64table[] = { 8, 8, 8, 7, 8, 9,10,11 };   /* subtracted */
-        int const sub2 = dec64table[offset];
-        (*op)[0] = (*ip)[0];
-        (*op)[1] = (*ip)[1];
-        (*op)[2] = (*ip)[2];
-        (*op)[3] = (*ip)[3];
-        *ip += dec32table[offset];
-        ZSTD_copy4(*op+4, *ip);
-        *ip -= sub2;
-    } else {
-        ZSTD_copy8(*op, *ip);
-    }
-    *ip += 8;
-    *op += 8;
-    assert(*op - *ip >= 8);
-}
-
 /*! ZSTD_safecopy() :
  *  Specialized version of memcpy() that is allowed to READ up to WILDCOPY_OVERLENGTH past the input buffer
  *  and write up to 16 bytes past oend_w (op >= oend_w is allowed).
@@ -614,24 +579,10 @@ HINT_INLINE void ZSTD_overlapCopy8(BYTE** op, BYTE const** ip, size_t offset) {
  *           The src buffer must be before the dst buffer.
  */
 static void ZSTD_safecopy(BYTE* op, BYTE* const oend_w, BYTE const* ip, ptrdiff_t length, ZSTD_overlap_e ovtype) {
-    ptrdiff_t const diff = op - ip;
     BYTE* const oend = op + length;
 
-    assert((ovtype == ZSTD_no_overlap && (diff <= -8 || diff >= 8 || op >= oend_w)) ||
+    assert((ovtype == ZSTD_no_overlap && ((op - ip) <= -16 || (op - ip) >= 16 || op >= oend_w)) ||
            (ovtype == ZSTD_overlap_src_before_dst && diff >= 0));
-
-    if (length < 8) {
-        /* Handle short lengths. */
-        while (op < oend) *op++ = *ip++;
-        return;
-    }
-    if (ovtype == ZSTD_overlap_src_before_dst) {
-        /* Copy 8 bytes and ensure the offset >= 8 when there can be overlap. */
-        assert(length >= 8);
-        ZSTD_overlapCopy8(&op, &ip, diff);
-        assert(op - ip >= 8);
-        assert(op <= oend);
-    }
 
     if (oend <= oend_w) {
         /* No risk of overwrite. */
@@ -757,27 +708,13 @@ size_t ZSTD_execSequence(BYTE* op,
     assert(match >= prefixStart);
     assert(sequence.matchLength >= 1);
 
-    /* Nearly all offsets are >= WILDCOPY_VECLEN bytes, which means we can use wildcopy
-     * without overlap checking.
-     */
-    if (LIKELY(sequence.offset >= WILDCOPY_VECLEN)) {
-        /* We bet on a full wildcopy for matches, since we expect matches to be
-         * longer than literals (in general). In silesia, ~10% of matches are longer
-         * than 16 bytes.
-         */
-        ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength, ZSTD_no_overlap);
-        return sequenceLength;
-    }
-    assert(sequence.offset < WILDCOPY_VECLEN);
-
-    /* Copy 8 bytes and spread the offset to be >= 8. */
-    ZSTD_overlapCopy8(&op, &match, sequence.offset);
-
-    /* If the match length is > 8 bytes, then continue with the wildcopy. */
-    if (sequence.matchLength > 8) {
-        assert(op < oMatchEnd);
-        ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength-8, ZSTD_overlap_src_before_dst);
-    }
+    /* We bet on a full wildcopy for matches, since we expect matches to be
+        * longer than literals (in general). In silesia, ~10% of matches are longer
+        * than 16 bytes.
+        */
+    assert(op - match == sequence.offset);
+    DEBUGLOG(2, "offset = %u", sequence.offset);
+    ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength, ZSTD_overlap_src_before_dst);
     return sequenceLength;
 }
 

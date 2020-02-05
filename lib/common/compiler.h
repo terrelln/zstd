@@ -31,11 +31,26 @@
 #  define FORCE_INLINE_ATTR
 #endif
 
+#if defined(__GNUC__)
+#  define FLATTEN_ATTR __attribute__((flatten))
+#else
+#  define FLATTEN_ATTR
+#endif
+
 #else
 
 #define INLINE_KEYWORD
 #define FORCE_INLINE_ATTR
+#define FLATTEN_ATTR
 
+#endif
+
+#ifndef ZSTD_HAVE_SSSE3
+#ifdef __SSSE3__
+#define ZSTD_HAVE_SSSE3 1
+#else
+#define ZSTD_HAVE_SSSE3 0
+#endif
 #endif
 
 /**
