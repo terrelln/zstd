@@ -737,9 +737,14 @@ size_t ZSTD_execSequence(BYTE* op,
 
     /* Copy Match */
     if (sequence.offset > (size_t)(oLitEnd - prefixStart)) {
+        const BYTE* const dictEnd_w = dictEnd - WILDCOPY_OVERLENGTH;
         /* offset beyond prefix -> go into extDict */
         RETURN_ERROR_IF(UNLIKELY(sequence.offset > (size_t)(oLitEnd - virtualStart)), corruption_detected);
         match = dictEnd + (match - prefixStart);
+        if (match + sequence.matchLength <= dictEnd_w) {
+            ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength, ZSTD_no_overlap);
+            return sequenceLength;
+        }
         if (match + sequence.matchLength <= dictEnd) {
             memmove(oLitEnd, match, sequence.matchLength);
             return sequenceLength;
