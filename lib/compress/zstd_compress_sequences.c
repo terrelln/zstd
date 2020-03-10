@@ -12,6 +12,7 @@
  *  Dependencies
  ***************************************/
 #include "zstd_compress_sequences.h"
+#include "zstd_compress_internal.h"
 
 /**
  * -log2(x / 256) lookup table for x in [0, 256).
@@ -231,6 +232,14 @@ ZSTD_buildCTable(void* dst, size_t dstCapacity,
     BYTE* op = (BYTE*)dst;
     const BYTE* const oend = op + dstCapacity;
     DEBUGLOG(6, "ZSTD_buildCTable (dstCapacity=%u)", (unsigned)dstCapacity);
+
+    {
+        U32 s = 0;
+        U32 m = MIN(max, 10);
+        for (s = 0; s < m; ++s) {
+            DEBUGLOG(HL, "hist[%u] = %u", s, count[s]);
+        }
+    }
 
     switch (type) {
     case set_rle:

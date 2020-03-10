@@ -256,7 +256,8 @@ typedef enum { ZSTD_fast=1,
                ZSTD_btlazy2=6,
                ZSTD_btopt=7,
                ZSTD_btultra=8,
-               ZSTD_btultra2=9
+               ZSTD_btultra2=9,
+               ZSTD_btopt2=10,
                /* note : new strategies _might_ be added in the future.
                          Only the order (from fast to strong) is guaranteed */
 } ZSTD_strategy;
@@ -1060,7 +1061,7 @@ ZSTDLIB_API size_t ZSTD_sizeof_DDict(const ZSTD_DDict* ddict);
 #define ZSTD_TARGETLENGTH_MAX    ZSTD_BLOCKSIZE_MAX
 #define ZSTD_TARGETLENGTH_MIN     0   /* note : comparing this constant to an unsigned results in a tautological test */
 #define ZSTD_STRATEGY_MIN        ZSTD_fast
-#define ZSTD_STRATEGY_MAX        ZSTD_btultra2
+#define ZSTD_STRATEGY_MAX        ZSTD_btopt2
 
 
 #define ZSTD_OVERLAPLOG_MIN       0

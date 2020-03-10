@@ -119,6 +119,103 @@ typedef struct {
     ZSTD_literalCompressionMode_e literalCompressionMode;
 } optState_t;
 
+typedef enum { ZSTD_noDict = 0, ZSTD_extDict = 1, ZSTD_dictMatchState = 2 } ZSTD_dictMode_e;
+
+/// TODO XXX delete me
+#define HL 3
+
+//// SECTION:OPTSTATE
+typedef struct {
+    U32 rep[ZSTD_REP_NUM];
+} ZSTD_OptRepcode;
+
+typedef enum {
+  ZSTD_OCT_literals,
+  ZSTD_OCT_match,
+} ZSTD_OptCommandType;
+
+typedef struct {
+  uint32_t length;
+  uint32_t offset;
+  char type;
+} ZSTD_OptCommand;
+
+typedef struct {
+  ZSTD_OptCommand const* begin;
+  ZSTD_OptCommand const* end;
+} ZSTD_OptCommands;
+
+typedef struct {
+  ZSTD_OptCommand cmd;
+  uint32_t price;
+  ZSTD_OptRepcode reps;
+} ZSTD_OptState;
+
+typedef struct {
+  U32* hash;
+  U32* bt;
+  U32 hashLog;
+  U32 btLog;
+  U32 btMask;
+} ZSTD_OptBt;
+
+typedef struct {
+  BYTE const* base;
+  BYTE const* end;
+  U32 highLimit;
+  U32 lowLimit;
+  ZSTD_OptBt bt;
+  U32 btLow;
+} ZSTD_OptDms;
+
+typedef struct {
+  ZSTD_dictMode_e dictMode; // Templated
+  U32 minMatch; // Templated
+  U32 mls;
+  U32 sufficientLen;
+  U32 windowLog;
+  BYTE const* base;
+  BYTE const* dictBase;
+  U32 dictLimit;
+  BYTE const* dictEnd;
+  BYTE const* prefixStart;
+  U32 nbCompares;
+  ZSTD_OptBt bt;
+  ZSTD_OptDms dms;
+  int optLevel;
+} ZSTD_OptParams;
+
+typedef struct ZSTD_matchState_t ZSTD_matchState_t;
+typedef struct {
+  // PARAMS:MATCHFINDING
+  ZSTD_OptParams params;
+  U32 nextToUpdate3;
+  ZSTD_OptCommand cmds[ZSTD_OPT_NUM + 1];
+  // PARAMS:PRICING
+  unsigned litFreq[256];             /* table of literals statistics, of size 256 */
+  unsigned litLengthFreq[MaxLL+1];   /* table of litLength statistics, of size (MaxLL+1) */
+  unsigned matchLengthFreq[MaxML+1]; /* table of matchLength statistics, of size (MaxML+1) */
+  unsigned offCodeFreq[MaxOff+1];    /* table of offCode statistics, of size (MaxOff+1) */
+  ZSTD_OptState opt[ZSTD_OPT_NUM];
+
+  U32  litSum;                 /* nb of literals */
+  U32  litLengthSum;           /* nb of litLength codes */
+  U32  matchLengthSum;         /* nb of matchLength codes */
+  U32  offCodeSum;             /* nb of offset codes */
+  U32  litSumBasePrice;        /* to compare to log2(litfreq) */
+  U32  litLengthSumBasePrice;  /* to compare to log2(llfreq)  */
+  U32  matchLengthSumBasePrice;/* to compare to log2(mlfreq)  */
+  U32  offCodeSumBasePrice;    /* to compare to log2(offreq)  */
+  ZSTD_OptPrice_e priceType;   /* prices can be determined dynamically, or follow a pre-defined cost structure */
+  const ZSTD_entropyCTables_t* symbolCosts;  /* pre-calculated dictionary statistics */
+  ZSTD_literalCompressionMode_e literalCompressionMode;
+
+  ZSTD_matchState_t* ms;
+  ZSTD_OptRepcode initialReps;
+} ZSTD_OptContext;
+
+void ZSTD_OptContext_init(ZSTD_OptContext* ctx, ZSTD_matchState_t* ms);
+
 typedef struct {
   ZSTD_entropyCTables_t entropy;
   U32 rep[ZSTD_REP_NUM];
@@ -132,7 +229,6 @@ typedef struct {
     U32 lowLimit;           /* below that point, no more valid data */
 } ZSTD_window_t;
 
-typedef struct ZSTD_matchState_t ZSTD_matchState_t;
 struct ZSTD_matchState_t {
     ZSTD_window_t window;   /* State for window round buffer management */
     U32 loadedDictEnd;      /* index of end of dictionary, within context's referential.
@@ -148,6 +244,7 @@ struct ZSTD_matchState_t {
     U32* hashTable3;
     U32* chainTable;
     optState_t opt;         /* optimal parser state */
+    ZSTD_OptContext* opt2;         /* optimal parser state */
     const ZSTD_matchState_t* dictMatchState;
     ZSTD_compressionParameters cParams;
 };
@@ -284,8 +381,6 @@ struct ZSTD_CCtx_s {
 };
 
 typedef enum { ZSTD_dtlm_fast, ZSTD_dtlm_full } ZSTD_dictTableLoadMethod_e;
-
-typedef enum { ZSTD_noDict = 0, ZSTD_extDict = 1, ZSTD_dictMatchState = 2 } ZSTD_dictMode_e;
 
 
 typedef size_t (*ZSTD_blockCompressor) (

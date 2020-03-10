@@ -27,6 +27,7 @@
 #include "zstd_double_fast.h"
 #include "zstd_lazy.h"
 #include "zstd_opt.h"
+#include "zstd_opt2.h"
 #include "zstd_ldm.h"
 #include "zstd_compress_superblock.h"
 
@@ -1107,7 +1108,8 @@ ZSTD_sizeof_matchState(const ZSTD_compressionParameters* const cParams,
       + ZSTD_cwksp_alloc_size((MaxOff+1) * sizeof(U32))
       + ZSTD_cwksp_alloc_size((1<<Litbits) * sizeof(U32))
       + ZSTD_cwksp_alloc_size((ZSTD_OPT_NUM+1) * sizeof(ZSTD_match_t))
-      + ZSTD_cwksp_alloc_size((ZSTD_OPT_NUM+1) * sizeof(ZSTD_optimal_t));
+      + ZSTD_cwksp_alloc_size((ZSTD_OPT_NUM+1) * sizeof(ZSTD_optimal_t))
+      + sizeof(ZSTD_OptContext);
     size_t const optSpace = (forCCtx && (cParams->strategy >= ZSTD_btopt))
                                 ? optPotentialSpace
                                 : 0;
@@ -1363,8 +1365,19 @@ ZSTD_reset_matchState(ZSTD_matchState_t* ms,
     }
 
     /* opt parser space */
-    if ((forWho == ZSTD_resetTarget_CCtx) && (cParams->strategy >= ZSTD_btopt)) {
+    if ((forWho == ZSTD_resetTarget_CCtx) && (cParams->strategy >= ZSTD_btopt && cParams->strategy < ZSTD_btopt2)) {
         DEBUGLOG(4, "reserving optimal parser space");
+        ms->opt.litFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (1<<Litbits) * sizeof(unsigned));
+        ms->opt.litLengthFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (MaxLL+1) * sizeof(unsigned));
+        ms->opt.matchLengthFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (MaxML+1) * sizeof(unsigned));
+        ms->opt.offCodeFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (MaxOff+1) * sizeof(unsigned));
+        ms->opt.matchTable = (ZSTD_match_t*)ZSTD_cwksp_reserve_aligned(ws, (ZSTD_OPT_NUM+1) * sizeof(ZSTD_match_t));
+        ms->opt.priceTable = (ZSTD_optimal_t*)ZSTD_cwksp_reserve_aligned(ws, (ZSTD_OPT_NUM+1) * sizeof(ZSTD_optimal_t));
+    }
+    if ((forWho == ZSTD_resetTarget_CCtx) && (cParams->strategy >= ZSTD_btopt2)) {
+        DEBUGLOG(4, "reserving optimal parser space");
+        ms->opt2 = (ZSTD_OptContext*)ZSTD_cwksp_reserve_aligned(ws, sizeof(ZSTD_OptContext));
+        ZSTD_OptContext_init(ms->opt2, ms);
         ms->opt.litFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (1<<Litbits) * sizeof(unsigned));
         ms->opt.litLengthFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (MaxLL+1) * sizeof(unsigned));
         ms->opt.matchLengthFreq = (unsigned*)ZSTD_cwksp_reserve_aligned(ws, (MaxML+1) * sizeof(unsigned));
@@ -2029,7 +2042,7 @@ ZSTD_compressSequences_internal(seqStore_t* seqStorePtr,
     /* build CTable for Literal Lengths */
     {   unsigned max = MaxLL;
         size_t const mostFrequent = HIST_countFast_wksp(count, &max, llCodeTable, nbSeq, entropyWorkspace, entropyWkspSize);   /* can't fail */
-        DEBUGLOG(5, "Building LL table");
+        DEBUGLOG(HL, "Building LL table");
         nextEntropy->fse.litlength_repeatMode = prevEntropy->fse.litlength_repeatMode;
         LLtype = ZSTD_selectEncodingType(&nextEntropy->fse.litlength_repeatMode,
                                         count, max, mostFrequent, nbSeq,
@@ -2058,7 +2071,7 @@ ZSTD_compressSequences_internal(seqStore_t* seqStorePtr,
             count, &max, ofCodeTable, nbSeq, entropyWorkspace, entropyWkspSize);  /* can't fail */
         /* We can only use the basic table if max <= DefaultMaxOff, otherwise the offsets are too large */
         ZSTD_defaultPolicy_e const defaultPolicy = (max <= DefaultMaxOff) ? ZSTD_defaultAllowed : ZSTD_defaultDisallowed;
-        DEBUGLOG(5, "Building OF table");
+        DEBUGLOG(HL, "Building OF table");
         nextEntropy->fse.offcode_repeatMode = prevEntropy->fse.offcode_repeatMode;
         Offtype = ZSTD_selectEncodingType(&nextEntropy->fse.offcode_repeatMode,
                                         count, max, mostFrequent, nbSeq,
@@ -2084,7 +2097,7 @@ ZSTD_compressSequences_internal(seqStore_t* seqStorePtr,
     {   unsigned max = MaxML;
         size_t const mostFrequent = HIST_countFast_wksp(
             count, &max, mlCodeTable, nbSeq, entropyWorkspace, entropyWkspSize);   /* can't fail */
-        DEBUGLOG(5, "Building ML table (remaining space : %i)", (int)(oend-op));
+        DEBUGLOG(HL, "Building ML table (remaining space : %i)", (int)(oend-op));
         nextEntropy->fse.matchlength_repeatMode = prevEntropy->fse.matchlength_repeatMode;
         MLtype = ZSTD_selectEncodingType(&nextEntropy->fse.matchlength_repeatMode,
                                         count, max, mostFrequent, nbSeq,
@@ -2176,7 +2189,8 @@ ZSTD_compressSequences(seqStore_t* seqStorePtr,
 ZSTD_blockCompressor ZSTD_selectBlockCompressor(ZSTD_strategy strat, ZSTD_dictMode_e dictMode)
 {
     static const ZSTD_blockCompressor blockCompressor[3][ZSTD_STRATEGY_MAX+1] = {
-        { ZSTD_compressBlock_fast  /* default for 0 */,
+        {
+          ZSTD_compressBlock_fast  /* default for 0 */,
           ZSTD_compressBlock_fast,
           ZSTD_compressBlock_doubleFast,
           ZSTD_compressBlock_greedy,
@@ -2185,8 +2199,11 @@ ZSTD_blockCompressor ZSTD_selectBlockCompressor(ZSTD_strategy strat, ZSTD_dictMo
           ZSTD_compressBlock_btlazy2,
           ZSTD_compressBlock_btopt,
           ZSTD_compressBlock_btultra,
-          ZSTD_compressBlock_btultra2 },
-        { ZSTD_compressBlock_fast_extDict  /* default for 0 */,
+          ZSTD_compressBlock_btultra2,
+          ZSTD_compressBlock_btopt2,
+        },
+        {
+          ZSTD_compressBlock_fast_extDict  /* default for 0 */,
           ZSTD_compressBlock_fast_extDict,
           ZSTD_compressBlock_doubleFast_extDict,
           ZSTD_compressBlock_greedy_extDict,
@@ -2195,8 +2212,11 @@ ZSTD_blockCompressor ZSTD_selectBlockCompressor(ZSTD_strategy strat, ZSTD_dictMo
           ZSTD_compressBlock_btlazy2_extDict,
           ZSTD_compressBlock_btopt_extDict,
           ZSTD_compressBlock_btultra_extDict,
-          ZSTD_compressBlock_btultra_extDict },
-        { ZSTD_compressBlock_fast_dictMatchState  /* default for 0 */,
+          ZSTD_compressBlock_btultra_extDict,
+          ZSTD_compressBlock_btopt2_extDict,
+        },
+        {
+          ZSTD_compressBlock_fast_dictMatchState  /* default for 0 */,
           ZSTD_compressBlock_fast_dictMatchState,
           ZSTD_compressBlock_doubleFast_dictMatchState,
           ZSTD_compressBlock_greedy_dictMatchState,
@@ -2205,7 +2225,9 @@ ZSTD_blockCompressor ZSTD_selectBlockCompressor(ZSTD_strategy strat, ZSTD_dictMo
           ZSTD_compressBlock_btlazy2_dictMatchState,
           ZSTD_compressBlock_btopt_dictMatchState,
           ZSTD_compressBlock_btultra_dictMatchState,
-          ZSTD_compressBlock_btultra_dictMatchState }
+          ZSTD_compressBlock_btultra_dictMatchState,
+          ZSTD_compressBlock_btopt2_dictMatchState,
+        }
     };
     ZSTD_blockCompressor selectedCompressor;
     ZSTD_STATIC_ASSERT((unsigned)ZSTD_fast == 1);
@@ -2246,8 +2268,10 @@ static size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize)
     ZSTD_resetSeqStore(&(zc->seqStore));
     /* required for optimal parser to read stats from dictionary */
     ms->opt.symbolCosts = &zc->blockState.prevCBlock->entropy;
+    if (ms->opt2) ms->opt2->symbolCosts = &zc->blockState.prevCBlock->entropy;
     /* tell the optimal parser how we expect to compress literals */
     ms->opt.literalCompressionMode = zc->appliedParams.literalCompressionMode;
+    if (ms->opt2) ms->opt2->literalCompressionMode = zc->appliedParams.literalCompressionMode;
     /* a gap between an attached dict and the current window is not safe,
      * they must remain adjacent,
      * and when that stops being the case, the dict must be unset */
@@ -2821,6 +2845,7 @@ static size_t ZSTD_loadDictionaryContent(ZSTD_matchState_t* ms,
                 ZSTD_insertAndFindFirstIndex(ms, ichunk-HASH_READ_SIZE);
             break;
 
+        case ZSTD_btopt2:
         case ZSTD_btlazy2:   /* we want the dictionary table fully sorted */
         case ZSTD_btopt:
         case ZSTD_btultra:
@@ -4079,8 +4104,8 @@ int ZSTD_minCLevel(void) { return (int)-ZSTD_TARGETLENGTH_MAX; }
 static const ZSTD_compressionParameters ZSTD_defaultCParameters[4][ZSTD_MAX_CLEVEL+1] = {
 {   /* "default" - for any srcSize > 256 KB */
     /* W,  C,  H,  S,  L, TL, strat */
-    { 19, 12, 13,  1,  6,  1, ZSTD_fast    },  /* base for negative levels */
-    { 19, 13, 14,  1,  7,  0, ZSTD_fast    },  /* level  1 */
+    { 22, 22, 22,  5,  5, 48, ZSTD_btopt2  },  /* level 16 */
+    { 23, 23, 22,  6,  3, 64, ZSTD_btopt2  },  /* level 18 */
     { 20, 15, 16,  1,  6,  0, ZSTD_fast    },  /* level  2 */
     { 21, 16, 17,  1,  5,  0, ZSTD_dfast   },  /* level  3 */
     { 21, 18, 18,  1,  5,  0, ZSTD_dfast   },  /* level  4 */

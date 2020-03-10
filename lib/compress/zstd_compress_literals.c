@@ -12,6 +12,7 @@
  *  Dependencies
  ***************************************/
 #include "zstd_compress_literals.h"
+#include "zstd_compress_internal.h"
 
 size_t ZSTD_noCompressLiterals (void* dst, size_t dstCapacity, const void* src, size_t srcSize)
 {
@@ -80,8 +81,8 @@ size_t ZSTD_compressLiterals (ZSTD_hufCTables_t const* prevHuf,
     symbolEncodingType_e hType = set_compressed;
     size_t cLitSize;
 
-    DEBUGLOG(5,"ZSTD_compressLiterals (disableLiteralCompression=%i)",
-                disableLiteralCompression);
+    DEBUGLOG(HL,"ZSTD_compressLiterals %u (disableLiteralCompression=%i)",
+               (U32)srcSize, disableLiteralCompression);
 
     /* Prepare nextEntropy assuming reusing the existing table */
     memcpy(nextHuf, prevHuf, sizeof(*prevHuf));

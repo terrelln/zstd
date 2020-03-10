@@ -1179,6 +1179,7 @@ static int ZSTDMT_overlapLog_default(ZSTD_strategy strat)
             return 9;
         case ZSTD_btultra:
         case ZSTD_btopt:
+        case ZSTD_btopt2:
             return 8;
         case ZSTD_btlazy2:
         case ZSTD_lazy2:
