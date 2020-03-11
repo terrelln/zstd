@@ -132,12 +132,16 @@ typedef struct {
 typedef enum {
   ZSTD_OCT_literals,
   ZSTD_OCT_match,
+  ZSTD_OCT_mlr,
 } ZSTD_OptCommandType;
 
 typedef struct {
   uint32_t length;
   uint32_t offset;
   char type;
+  uint8_t lits;
+  uint8_t rep;
+  uint8_t repLen;
 } ZSTD_OptCommand;
 
 typedef struct {

@@ -262,6 +262,114 @@ FORCE_INLINE_TEMPLATE size_t ZSTD_Opt_getRepCommands(
   }
   return cnum;
 }
+
+static ZSTD_OptRepcode ZSTD_updateRep(U32 const rep[3], U32 const offset, U32 const ll0)
+{
+    ZSTD_OptRepcode newReps;
+    if (offset >= ZSTD_REP_NUM) {  /* full offset */
+        newReps.rep[2] = rep[1];
+        newReps.rep[1] = rep[0];
+        newReps.rep[0] = offset - ZSTD_REP_MOVE;
+    } else {   /* repcode */
+        U32 const repCode = offset + ll0;
+        if (repCode > 0) {  /* note : if repCode==0, no change */
+            U32 const currentOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
+            newReps.rep[2] = (repCode >= 2) ? rep[1] : rep[2];
+            newReps.rep[1] = rep[0];
+            newReps.rep[0] = currentOffset;
+        } else {   /* repCode == 0 */
+            memcpy(&newReps, rep, sizeof(newReps));
+        }
+    }
+    return newReps;
+}
+
+FORCE_INLINE_TEMPLATE size_t ZSTD_Opt_getMLRCommands(
+    ZSTD_OptContext const* ctx,
+    ZSTD_OptCommand* cmds,
+    size_t cur,
+    uint8_t const* const istart,
+    uint8_t const* iLimit,
+    size_t* bestLength,
+    U32 const minMatch /* template */,
+    ZSTD_dictMode_e const dictMode /* template */) {
+  const size_t kMaxLits = 8;
+  ZSTD_OptParams const* p = &ctx->params;
+  ZSTD_OptCommand const* cmd;
+  ZSTD_OptCommand const* const cmdEnd = cmds;
+  int const curll0 = ctx->opt[cur].cmd.type != ZSTD_OCT_literals || (cur == 0 && ctx->opt[cur].cmd.length == 0);
+  size_t cnum = 0;
+  for (cmd = ctx->cmds; cmd != cmdEnd; ++cmd) {
+    uint8_t const* ip = istart + cmd->length;
+    if (ip > iLimit - kMaxLits - minMatch) {
+      return 0;
+    }
+    if (cmd->type == ZSTD_OCT_literals) {
+      continue;
+    }
+    ZSTD_OptRepcode reps = ZSTD_updateRep(ctx->opt[cur].reps.rep, cmd->offset, curll0);
+    for (size_t lits = 0; lits < kMaxLits + 1; ++lits, ++ip) {
+      U32 const current = (U32)(ip - p->base);
+      U32 const windowLow = ZSTD_getLowestMatchIndex(ctx->ms, current, p->windowLog);
+      U32 const dmsIndexDelta = dictMode == ZSTD_dictMatchState ? windowLow - p->dms.highLimit : 0;
+      int const ll0 = lits == 0;
+      U32 const* rep = reps.rep;
+      // TODO: Handle position 0 better
+      int const repEnd = ZSTD_REP_NUM + ll0;
+      int repCode;
+      for (repCode = ll0; repCode < repEnd; ++repCode) {
+        U32 const repOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
+        U32 const repIndex = current - repOffset;
+        U32 repLen = 0;
+        assert(current >= p->dictLimit);
+        if (repOffset-1 /* intentional overflow, discards 0 and -1 */ < current - p->dictLimit) {  /* equivalent to `current > repIndex >= dictLimit` */
+          if (ZSTD_readMINMATCH(ip, minMatch) == ZSTD_readMINMATCH(ip - repOffset, minMatch)) {
+            repLen = (U32)ZSTD_count(ip+minMatch, ip+minMatch-repOffset, iLimit) + minMatch;
+          }
+        } else {  /* repIndex < dictLimit || repIndex >= current */
+          const BYTE* const repMatch = dictMode == ZSTD_dictMatchState ?
+                                        p->dms.base + repIndex - dmsIndexDelta :
+                                        p->dictBase + repIndex;
+          assert(current >= windowLow);
+          if ( dictMode == ZSTD_extDict
+            && ( ((repOffset-1) /*intentional overflow*/ < current - windowLow)  /* equivalent to `current > repIndex >= windowLow` */
+                & (((U32)((p->dictLimit-1) - repIndex) >= 3) ) /* intentional overflow : do not test positions overlapping 2 memory segments */)
+            && (ZSTD_readMINMATCH(ip, minMatch) == ZSTD_readMINMATCH(repMatch, minMatch)) ) {
+            repLen = (U32)ZSTD_count_2segments(ip+minMatch, repMatch+minMatch, iLimit, p->dictEnd, p->prefixStart) + minMatch;
+          }
+          if (dictMode == ZSTD_dictMatchState
+            && ( ((repOffset-1) /*intentional overflow*/ < current - (p->dms.lowLimit + dmsIndexDelta))  /* equivalent to `current > repIndex >= dmsLowLimit` */
+                & ((U32)((p->dictLimit-1) - repIndex) >= 3) ) /* intentional overflow : do not test positions overlapping 2 memory segments */
+            && (ZSTD_readMINMATCH(ip, minMatch) == ZSTD_readMINMATCH(repMatch, minMatch)) ) {
+            repLen = (U32)ZSTD_count_2segments(ip+minMatch, repMatch+minMatch, iLimit, p->dms.end, p->prefixStart) + minMatch;
+          }
+        }
+        /* save longer solution */
+        repLen = MIN(255, repLen);
+        size_t const totalLen = cmd->length + lits + repLen;
+        if (repLen >= minMatch && totalLen > *bestLength) {
+          assert(repLen >= MINMATCH);
+          DEBUGLOG(8, "found repCode %u (ll0:%u, offset:%u) of length %u",
+                      repCode, ll0, repOffset, repLen);
+          *bestLength = totalLen;
+          cmds[cnum] = *cmd;
+          cmds[cnum].type = ZSTD_OCT_mlr;
+          cmds[cnum].lits = lits;
+          cmds[cnum].rep = repCode - ll0;
+          cmds[cnum].repLen = repLen;
+          cmds[cnum].length = totalLen;
+          cnum++;
+          if ( (totalLen > p->sufficientLen) | (repLen >= 255)
+              | (ip+repLen == iLimit) ) {  /* best possible */
+            break;
+          }
+        }
+      }
+    }
+  }
+  return cnum;
+}
+
 FORCE_INLINE_TEMPLATE size_t ZSTD_Opt_getHC3Commands(
     ZSTD_OptContext* ctx,
     ZSTD_OptCommand* cmds,
@@ -600,6 +708,9 @@ static ZSTD_OptCommands ZSTD_Opt_getCommands_impl(
       ZSTD_updateTree_internal(ctx->ms, ip, iend, ctx->params.mls, dictMode);
       cmds += ZSTD_Opt_getBtCommands(ctx, cmds, ip, iend, &bestLength, dictMode);
     }
+    if (bestLength <= sufficientLen && ip + bestLength < iend) {
+      cmds += ZSTD_Opt_getMLRCommands(ctx, cmds, cur, ip, iend, &bestLength, minMatch, dictMode);
+    }
   }
   return (ZSTD_OptCommands){.begin = ctx->cmds, .end = cmds};
 }
@@ -831,28 +942,28 @@ ZSTD_rescaleFreqs(ZSTD_OptContext* const optPtr,
 /* ZSTD_rawLiteralsCost() :
  * price of literals (only) in specified segment (which length can be 0).
  * does not include price of literalLength symbol */
-// static U32 ZSTD_rawLiteralsCost(const BYTE* const literals, U32 const litLength,
-//                                 const ZSTD_OptContext* const optPtr,
-//                                 int optLevel)
-// {
-//     if (litLength == 0) return 0;
+static U32 ZSTD_rawLiteralsCost(const BYTE* const literals, U32 const litLength,
+                                const ZSTD_OptContext* const optPtr,
+                                int optLevel)
+{
+    if (litLength == 0) return 0;
 
-//     if (!ZSTD_compressedLiterals(optPtr))
-//         return (litLength << 3) * BITCOST_MULTIPLIER;  /* Uncompressed - 8 bytes per literal. */
+    if (!ZSTD_compressedLiterals(optPtr))
+        return (litLength << 3) * BITCOST_MULTIPLIER;  /* Uncompressed - 8 bytes per literal. */
 
-//     if (optPtr->priceType == zop_predef)
-//         return (litLength*6) * BITCOST_MULTIPLIER;  /* 6 bit per literal - no statistic used */
+    if (optPtr->priceType == zop_predef)
+        return (litLength*6) * BITCOST_MULTIPLIER;  /* 6 bit per literal - no statistic used */
 
-//     /* dynamic statistics */
-//     {   U32 price = litLength * optPtr->litSumBasePrice;
-//         U32 u;
-//         for (u=0; u < litLength; u++) {
-//             assert(WEIGHT(optPtr->litFreq[literals[u]], optLevel) <= optPtr->litSumBasePrice);   /* literal cost should never be negative */
-//             price -= WEIGHT(optPtr->litFreq[literals[u]], optLevel);
-//         }
-//         return price;
-//     }
-// }
+    /* dynamic statistics */
+    {   U32 price = litLength * optPtr->litSumBasePrice;
+        U32 u;
+        for (u=0; u < litLength; u++) {
+            assert(WEIGHT(optPtr->litFreq[literals[u]], optLevel) <= optPtr->litSumBasePrice);   /* literal cost should never be negative */
+            price -= WEIGHT(optPtr->litFreq[literals[u]], optLevel);
+        }
+        return price;
+    }
+}
 
 static U32 ZSTD_rawLiteralCost(BYTE const literal, const ZSTD_OptContext* const optPtr, int optLevel)
 {
@@ -985,10 +1096,22 @@ FORCE_INLINE_TEMPLATE uint32_t ZSTD_Opt_getCommandPrice_impl(
     return prevPrice + litCost
                      + ZSTD_litLengthPrice(prevLitlen + 1, ctx, optLevel)
                      - ZSTD_litLengthPrice(prevLitlen, ctx, optLevel);
-  } else {
+  } else if (cmd->type == ZSTD_OCT_match) {
     assert(len <= cmd->length);
     return prevPrice + ZSTD_litLengthPrice(0, ctx, optLevel) +
                      + ZSTD_getMatchPrice(cmd->offset, len, ctx, optLevel);
+  } else {
+    uint32_t const mlen = cmd->length - cmd->lits - cmd->repLen;
+    uint32_t const repLen = cmd->repLen + (cmd->length - len);
+    assert(len <= cmd->length);
+    assert(cmd->type == ZSTD_OCT_mlr);
+    assert(cmd->length >= cmd->lits + cmd->repLen + MINMATCH);
+    assert(len >= mlen + cmd->lits + MINMATCH);
+    return prevPrice + ZSTD_getMatchPrice(cmd->offset, mlen, ctx, optLevel)
+                     + ZSTD_litLengthPrice(cmd->lits, ctx, optLevel)
+                     + ZSTD_rawLiteralsCost(ip + cur + mlen, cmd->lits, ctx, optLevel)
+                     + ZSTD_getMatchPrice(cmd->rep, repLen, ctx, optLevel)
+                     + ZSTD_litLengthPrice(0, ctx, optLevel);
   }
 }
 // Params: State ptr, command, path
@@ -1015,7 +1138,7 @@ static int ZSTD_Opt_break(ZSTD_OptContext const* ctx) {
 static int ZSTD_Opt_immediateEncoding(
     ZSTD_OptContext const* ctx,
     ZSTD_OptCommand const* cmd) {
-  return cmd->length > ctx->params.sufficientLen;
+  return cmd->type == ZSTD_OCT_match && cmd->length > ctx->params.sufficientLen;
 }
 
 // Returns the shortest allowed length
@@ -1027,28 +1150,12 @@ static size_t ZSTD_OptCommand_shortestLen(
   if (cmd->type == ZSTD_OCT_match) {
     return MAX(shortest, MINMATCH);
   }
+  if (cmd->type == ZSTD_OCT_mlr) {
+    // Must include match + lits + MINMATCH
+    assert(cmd->repLen >= MINMATCH);
+    return MAX(shortest, cmd->length - cmd->repLen + MINMATCH);
+  }
   return shortest;
-}
-
-static ZSTD_OptRepcode ZSTD_updateRep(U32 const rep[3], U32 const offset, U32 const ll0)
-{
-    ZSTD_OptRepcode newReps;
-    if (offset >= ZSTD_REP_NUM) {  /* full offset */
-        newReps.rep[2] = rep[1];
-        newReps.rep[1] = rep[0];
-        newReps.rep[0] = offset - ZSTD_REP_MOVE;
-    } else {   /* repcode */
-        U32 const repCode = offset + ll0;
-        if (repCode > 0) {  /* note : if repCode==0, no change */
-            U32 const currentOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
-            newReps.rep[2] = (repCode >= 2) ? rep[1] : rep[2];
-            newReps.rep[1] = rep[0];
-            newReps.rep[0] = currentOffset;
-        } else {   /* repCode == 0 */
-            memcpy(&newReps, rep, sizeof(newReps));
-        }
-    }
-    return newReps;
 }
 
 static void ZSTD_Opt_fillBackward(ZSTD_OptContext* ctx, size_t cur) {
@@ -1061,9 +1168,12 @@ static void ZSTD_Opt_fillBackward(ZSTD_OptContext* ctx, size_t cur) {
   } else {
     uint32_t const prev = cur - ctx->opt[cur].cmd.length;
     U32 const ll0 = ctx->opt[prev].cmd.type != ZSTD_OCT_literals || (prev == 0 && ctx->opt[prev].cmd.length == 0);
-    assert(ctx->opt[cur].cmd.type == ZSTD_OCT_match);
+    assert(ctx->opt[cur].cmd.type == ZSTD_OCT_match || ctx->opt[cur].cmd.type == ZSTD_OCT_mlr);
     assert(cur >= ctx->opt[cur].cmd.length);
     ctx->opt[cur].reps = ZSTD_updateRep(ctx->opt[prev].reps.rep, ctx->opt[cur].cmd.offset, ll0);
+    if (ctx->opt[cur].cmd.type == ZSTD_OCT_mlr) {
+      ctx->opt[cur].reps = ZSTD_updateRep(ctx->opt[cur].reps.rep, ctx->opt[cur].cmd.rep, ctx->opt[cur].cmd.lits == 0);
+    }
   }
 }
 
@@ -1079,6 +1189,10 @@ static void ZSTD_Opt_fillForward(
     assert(pos > 0);
     ctx->opt[pos].cmd.length = 1 + plen;
   } else {
+    if (cmd->type == ZSTD_OCT_mlr) {
+      ctx->opt[pos].cmd.repLen -= ctx->opt[pos].cmd.length - len;
+      assert(ctx->opt[pos].cmd.repLen >= MINMATCH);
+    }
     ctx->opt[pos].cmd.length = len;
   }
 }
@@ -1236,14 +1350,16 @@ static void emit(
       U32 const advance = llen + mlen;
       DEBUGLOG(NT, "match llen=%u mlen=%u", llen, mlen);
 
-      // if (offset < ZSTD_REP_NUM) {
-      //   U32 const* rep = ctx->initialReps.rep;
-      //   U32 const repCode = offset + (llen == 0);
-      //   U32 const repOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
-      //   assert(!memcmp(*anchor + llen, *anchor + llen - repOffset, mlen));
-      // } else {
-      //   assert(!memcmp(*anchor + llen, *anchor + llen - (offset - ZSTD_REP_MOVE), mlen));
-      // }
+      if (DEBUGLEVEL >= 1) {
+        if (offset < ZSTD_REP_NUM) {
+          U32 const* rep = ctx->initialReps.rep;
+          U32 const repCode = offset + (llen == 0);
+          U32 const repOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
+          assert(!memcmp(*anchor + llen, *anchor + llen - repOffset, mlen));
+        } else {
+          assert(!memcmp(*anchor + llen, *anchor + llen - (offset - ZSTD_REP_MOVE), mlen));
+        }
+      }
 
       assert(mlen >= MINMATCH);
       ctx->initialReps = ZSTD_updateRep(ctx->initialReps.rep, offset, llen == 0);
@@ -1252,6 +1368,57 @@ static void emit(
       ZSTD_updateStats(ctx, llen, *anchor, offset, mlen);
       ZSTD_storeSeq(seqStore, llen, *anchor, iend, offset, mlen-MINMATCH);
       *anchor += advance;
+      *ip = *anchor;
+      llen = 0;
+    } else if (pos->cmd.type == ZSTD_OCT_mlr) {
+      assert(pos->cmd.repLen >= MINMATCH);
+      {
+        U32 const mlen = pos->cmd.length - pos->cmd.repLen - pos->cmd.lits;
+        U32 const offset = pos->cmd.offset;
+        U32 const advance = llen + mlen;
+
+        assert(mlen >= MINMATCH);
+        if (DEBUGLEVEL >= 1) {
+          if (offset < ZSTD_REP_NUM) {
+            U32 const* rep = ctx->initialReps.rep;
+            U32 const repCode = offset + (llen == 0);
+            U32 const repOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
+            assert(!memcmp(*anchor + llen, *anchor + llen - repOffset, mlen));
+          } else {
+            assert(!memcmp(*anchor + llen, *anchor + llen - (offset - ZSTD_REP_MOVE), mlen));
+          }
+        }
+        
+        ctx->initialReps = ZSTD_updateRep(ctx->initialReps.rep, offset, llen == 0);
+        
+        assert(*anchor + advance <= iend);
+        ZSTD_updateStats(ctx, llen, *anchor, offset, mlen);
+        ZSTD_storeSeq(seqStore, llen, *anchor, iend, offset, mlen-MINMATCH);
+        *anchor += advance;
+        *ip = *anchor;
+      }
+      llen = pos->cmd.lits;
+      {
+        U32 const mlen = pos->cmd.repLen;
+        U32 const offset = pos->cmd.rep;
+        U32 const advance = llen + mlen;
+
+        assert(offset < ZSTD_REP_NUM);
+        if (DEBUGLEVEL >= 1) {
+          U32 const* rep = ctx->initialReps.rep;
+          U32 const repCode = offset + (llen == 0);
+          U32 const repOffset = (repCode==ZSTD_REP_NUM) ? (rep[0] - 1) : rep[repCode];
+          assert(!memcmp(*anchor + llen, *anchor + llen - repOffset, mlen));
+        }
+        
+        assert(mlen >= MINMATCH);
+        ctx->initialReps = ZSTD_updateRep(ctx->initialReps.rep, offset, llen == 0);
+        
+        assert(*anchor + advance <= iend);
+        ZSTD_updateStats(ctx, llen, *anchor, offset, mlen);
+        ZSTD_storeSeq(seqStore, llen, *anchor, iend, offset, mlen-MINMATCH);
+        *anchor += advance;
+      }
       *ip = *anchor;
       llen = 0;
     } else {
