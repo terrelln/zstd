@@ -95,7 +95,7 @@ typedef struct {
     U32 rep[ZSTD_REP_NUM];
 } ZSTD_optimal_t;
 
-typedef enum { zop_dynamic=0, zop_predef } ZSTD_OptPrice_e;
+typedef enum { zop_dynamic=0, zop_predef, zop_static } ZSTD_OptPrice_e;
 
 typedef struct {
     /* All tables are allocated inside cctx->workspace by ZSTD_resetCCtx_internal() */
@@ -186,7 +186,7 @@ typedef struct {
 } ZSTD_OptParams;
 
 typedef struct ZSTD_matchState_t ZSTD_matchState_t;
-typedef struct {
+typedef struct ZSTD_OptContext_s {
   // PARAMS:MATCHFINDING
   ZSTD_OptParams params;
   U32 nextToUpdate3;
@@ -212,6 +212,9 @@ typedef struct {
 
   ZSTD_matchState_t* ms;
   ZSTD_OptRepcode initialReps;
+
+  ZSTD_OptCommands (*getCommands)(struct ZSTD_OptContext_s* ctx, size_t cur, uint8_t const* ip, uint8_t const* iend);
+  uint32_t (*getCommandPrice)(struct ZSTD_OptContext_s const* ctx, BYTE const* ip, size_t cur, ZSTD_OptCommand const* cmd, size_t len);
 } ZSTD_OptContext;
 
 void ZSTD_OptContext_init(ZSTD_OptContext* ctx, ZSTD_matchState_t* ms);
