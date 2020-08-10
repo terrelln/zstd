@@ -60,10 +60,12 @@ struct ZSTD_CDict_s {
     int compressionLevel; /* 0 indicates that advanced API was used to select CDict params */
 };  /* typedef'd to ZSTD_CDict within "zstd.h" */
 
+#ifndef ZSTD_NO_MALLOC
 ZSTD_CCtx* ZSTD_createCCtx(void)
 {
     return ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
 }
+#endif
 
 static void ZSTD_initCCtx(ZSTD_CCtx* cctx, ZSTD_customMem memManager)
 {
@@ -200,6 +202,7 @@ static ZSTD_CCtx_params ZSTD_makeCCtxParamsFromCParams(
     return cctxParams;
 }
 
+#ifndef ZSTD_NO_MALLOC
 static ZSTD_CCtx_params* ZSTD_createCCtxParams_advanced(
         ZSTD_customMem customMem)
 {
@@ -225,11 +228,7 @@ size_t ZSTD_freeCCtxParams(ZSTD_CCtx_params* params)
     ZSTD_customFree(params, params->customMem);
     return 0;
 }
-
-size_t ZSTD_CCtxParams_reset(ZSTD_CCtx_params* params)
-{
-    return ZSTD_CCtxParams_init(params, ZSTD_CLEVEL_DEFAULT);
-}
+#endif
 
 size_t ZSTD_CCtxParams_init(ZSTD_CCtx_params* cctxParams, int compressionLevel) {
     RETURN_ERROR_IF(!cctxParams, GENERIC, "NULL pointer!");
@@ -237,6 +236,11 @@ size_t ZSTD_CCtxParams_init(ZSTD_CCtx_params* cctxParams, int compressionLevel) 
     cctxParams->compressionLevel = compressionLevel;
     cctxParams->fParams.contentSizeFlag = 1;
     return 0;
+}
+
+size_t ZSTD_CCtxParams_reset(ZSTD_CCtx_params* params)
+{
+    return ZSTD_CCtxParams_init(params, ZSTD_CLEVEL_DEFAULT);
 }
 
 size_t ZSTD_CCtxParams_init_advanced(ZSTD_CCtx_params* cctxParams, ZSTD_parameters params)
@@ -478,55 +482,6 @@ static int ZSTD_isUpdateAuthorized(ZSTD_cParameter param)
     }
 }
 
-size_t ZSTD_CCtx_setParameter(ZSTD_CCtx* cctx, ZSTD_cParameter param, int value)
-{
-    DEBUGLOG(4, "ZSTD_CCtx_setParameter (%i, %i)", (int)param, value);
-    if (cctx->streamStage != zcss_init) {
-        if (ZSTD_isUpdateAuthorized(param)) {
-            cctx->cParamsChanged = 1;
-        } else {
-            RETURN_ERROR(stage_wrong, "can only set params in ctx init stage");
-    }   }
-
-    switch(param)
-    {
-    case ZSTD_c_nbWorkers:
-        RETURN_ERROR_IF((value!=0) && cctx->staticSize, parameter_unsupported,
-                        "MT not compatible with static alloc");
-        break;
-
-    case ZSTD_c_compressionLevel:
-    case ZSTD_c_windowLog:
-    case ZSTD_c_hashLog:
-    case ZSTD_c_chainLog:
-    case ZSTD_c_searchLog:
-    case ZSTD_c_minMatch:
-    case ZSTD_c_targetLength:
-    case ZSTD_c_strategy:
-    case ZSTD_c_ldmHashRateLog:
-    case ZSTD_c_format:
-    case ZSTD_c_contentSizeFlag:
-    case ZSTD_c_checksumFlag:
-    case ZSTD_c_dictIDFlag:
-    case ZSTD_c_forceMaxWindow:
-    case ZSTD_c_forceAttachDict:
-    case ZSTD_c_literalCompressionMode:
-    case ZSTD_c_jobSize:
-    case ZSTD_c_overlapLog:
-    case ZSTD_c_rsyncable:
-    case ZSTD_c_enableLongDistanceMatching:
-    case ZSTD_c_ldmHashLog:
-    case ZSTD_c_ldmMinMatch:
-    case ZSTD_c_ldmBucketSizeLog:
-    case ZSTD_c_targetCBlockSize:
-    case ZSTD_c_srcSizeHint:
-        break;
-
-    default: RETURN_ERROR(parameter_unsupported, "unknown parameter");
-    }
-    return ZSTD_CCtxParams_setParameter(&cctx->requestedParams, param, value);
-}
-
 size_t ZSTD_CCtxParams_setParameter(ZSTD_CCtx_params* CCtxParams,
                                     ZSTD_cParameter param, int value)
 {
@@ -711,9 +666,53 @@ size_t ZSTD_CCtxParams_setParameter(ZSTD_CCtx_params* CCtxParams,
     }
 }
 
-size_t ZSTD_CCtx_getParameter(ZSTD_CCtx* cctx, ZSTD_cParameter param, int* value)
+size_t ZSTD_CCtx_setParameter(ZSTD_CCtx* cctx, ZSTD_cParameter param, int value)
 {
-    return ZSTD_CCtxParams_getParameter(&cctx->requestedParams, param, value);
+    DEBUGLOG(4, "ZSTD_CCtx_setParameter (%i, %i)", (int)param, value);
+    if (cctx->streamStage != zcss_init) {
+        if (ZSTD_isUpdateAuthorized(param)) {
+            cctx->cParamsChanged = 1;
+        } else {
+            RETURN_ERROR(stage_wrong, "can only set params in ctx init stage");
+    }   }
+
+    switch(param)
+    {
+    case ZSTD_c_nbWorkers:
+        RETURN_ERROR_IF((value!=0) && cctx->staticSize, parameter_unsupported,
+                        "MT not compatible with static alloc");
+        break;
+
+    case ZSTD_c_compressionLevel:
+    case ZSTD_c_windowLog:
+    case ZSTD_c_hashLog:
+    case ZSTD_c_chainLog:
+    case ZSTD_c_searchLog:
+    case ZSTD_c_minMatch:
+    case ZSTD_c_targetLength:
+    case ZSTD_c_strategy:
+    case ZSTD_c_ldmHashRateLog:
+    case ZSTD_c_format:
+    case ZSTD_c_contentSizeFlag:
+    case ZSTD_c_checksumFlag:
+    case ZSTD_c_dictIDFlag:
+    case ZSTD_c_forceMaxWindow:
+    case ZSTD_c_forceAttachDict:
+    case ZSTD_c_literalCompressionMode:
+    case ZSTD_c_jobSize:
+    case ZSTD_c_overlapLog:
+    case ZSTD_c_rsyncable:
+    case ZSTD_c_enableLongDistanceMatching:
+    case ZSTD_c_ldmHashLog:
+    case ZSTD_c_ldmMinMatch:
+    case ZSTD_c_ldmBucketSizeLog:
+    case ZSTD_c_targetCBlockSize:
+    case ZSTD_c_srcSizeHint:
+        break;
+
+    default: RETURN_ERROR(parameter_unsupported, "unknown parameter");
+    }
+    return ZSTD_CCtxParams_setParameter(&cctx->requestedParams, param, value);
 }
 
 size_t ZSTD_CCtxParams_getParameter(
@@ -818,6 +817,11 @@ size_t ZSTD_CCtxParams_getParameter(
     default: RETURN_ERROR(parameter_unsupported, "unknown parameter");
     }
     return 0;
+}
+
+size_t ZSTD_CCtx_getParameter(ZSTD_CCtx* cctx, ZSTD_cParameter param, int* value)
+{
+    return ZSTD_CCtxParams_getParameter(&cctx->requestedParams, param, value);
 }
 
 /** ZSTD_CCtx_setParametersUsingCCtxParams() :
@@ -3310,6 +3314,7 @@ size_t ZSTD_compressCCtx(ZSTD_CCtx* cctx,
     return ZSTD_compress_usingDict(cctx, dst, dstCapacity, src, srcSize, NULL, 0, compressionLevel);
 }
 
+#ifndef ZSTD_NO_MALLOC
 size_t ZSTD_compress(void* dst, size_t dstCapacity,
                const void* src, size_t srcSize,
                      int compressionLevel)
@@ -3321,7 +3326,7 @@ size_t ZSTD_compress(void* dst, size_t dstCapacity,
     ZSTD_freeCCtxContent(&ctxBody);   /* can't free ctxBody itself, as it's on stack; free only heap content */
     return result;
 }
-
+#endif
 
 /* =====  Dictionary API  ===== */
 
@@ -3450,6 +3455,7 @@ ZSTD_CDict* ZSTD_createCDict_advanced(const void* dictBuffer, size_t dictSize,
     }
 }
 
+#ifndef ZSTD_NO_MALLOC
 ZSTD_CDict* ZSTD_createCDict(const void* dict, size_t dictSize, int compressionLevel)
 {
     ZSTD_compressionParameters cParams = ZSTD_getCParams_internal(compressionLevel, ZSTD_CONTENTSIZE_UNKNOWN, dictSize);
@@ -3460,6 +3466,7 @@ ZSTD_CDict* ZSTD_createCDict(const void* dict, size_t dictSize, int compressionL
         cdict->compressionLevel = compressionLevel == 0 ? ZSTD_CLEVEL_DEFAULT : compressionLevel;
     return cdict;
 }
+#endif
 
 ZSTD_CDict* ZSTD_createCDict_byReference(const void* dict, size_t dictSize, int compressionLevel)
 {
@@ -3614,11 +3621,13 @@ size_t ZSTD_compress_usingCDict(ZSTD_CCtx* cctx,
 *  Streaming
 ********************************************************************/
 
+#ifndef ZSTD_NO_MALLOC
 ZSTD_CStream* ZSTD_createCStream(void)
 {
     DEBUGLOG(3, "ZSTD_createCStream");
     return ZSTD_createCStream_advanced(ZSTD_defaultCMem);
 }
+#endif
 
 ZSTD_CStream* ZSTD_initStaticCStream(void *workspace, size_t workspaceSize)
 {

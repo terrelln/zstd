@@ -146,11 +146,13 @@ ZSTD_DCtx* ZSTD_createDCtx_advanced(ZSTD_customMem customMem)
     }
 }
 
+#ifndef ZSTD_NO_MALLOC
 ZSTD_DCtx* ZSTD_createDCtx(void)
 {
     DEBUGLOG(3, "ZSTD_createDCtx");
     return ZSTD_createDCtx_advanced(ZSTD_defaultCMem);
 }
+#endif
 
 static void ZSTD_clearDict(ZSTD_DCtx* dctx)
 {
@@ -820,7 +822,7 @@ size_t ZSTD_decompressDCtx(ZSTD_DCtx* dctx, void* dst, size_t dstCapacity, const
     return ZSTD_decompress_usingDDict(dctx, dst, dstCapacity, src, srcSize, ZSTD_getDDict(dctx));
 }
 
-
+#ifndef ZSTD_NO_MALLOC
 size_t ZSTD_decompress(void* dst, size_t dstCapacity, const void* src, size_t srcSize)
 {
 #if defined(ZSTD_HEAPMODE) && (ZSTD_HEAPMODE>=1)
@@ -836,7 +838,7 @@ size_t ZSTD_decompress(void* dst, size_t dstCapacity, const void* src, size_t sr
     return ZSTD_decompressDCtx(&dctx, dst, dstCapacity, src, srcSize);
 #endif
 }
-
+#endif
 
 /*-**************************************
 *   Advanced Streaming Decompression API
@@ -1276,11 +1278,13 @@ size_t ZSTD_decompress_usingDDict(ZSTD_DCtx* dctx,
 *   Streaming decompression
 *====================================*/
 
+#ifndef ZSTD_NO_MALLOC
 ZSTD_DStream* ZSTD_createDStream(void)
 {
     DEBUGLOG(3, "ZSTD_createDStream");
     return ZSTD_createDStream_advanced(ZSTD_defaultCMem);
 }
+#endif
 
 ZSTD_DStream* ZSTD_initStaticDStream(void *workspace, size_t workspaceSize)
 {

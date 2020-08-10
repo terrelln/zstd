@@ -163,6 +163,7 @@ ZSTD_DDict* ZSTD_createDDict_advanced(const void* dict, size_t dictSize,
     }
 }
 
+#ifndef ZSTD_NO_MALLOC
 /*! ZSTD_createDDict() :
 *   Create a digested dictionary, to start decompression without startup delay.
 *   `dict` content is copied inside DDict.
@@ -172,6 +173,7 @@ ZSTD_DDict* ZSTD_createDDict(const void* dict, size_t dictSize)
     ZSTD_customMem const allocator = { NULL, NULL, NULL };
     return ZSTD_createDDict_advanced(dict, dictSize, ZSTD_dlm_byCopy, ZSTD_dct_auto, allocator);
 }
+#endif
 
 /*! ZSTD_createDDict_byReference() :
  *  Create a digested dictionary, to start decompression without startup delay.

@@ -113,6 +113,7 @@ ZSTDLIB_API const char* ZSTD_versionString(void);
 /***************************************
 *  Simple API
 ***************************************/
+#ifndef ZSTD_NO_MALLOC
 /*! ZSTD_compress() :
  *  Compresses `src` content as a single zstd compressed frame into already allocated `dst`.
  *  Hint : compression runs faster if `dstCapacity` >=  `ZSTD_compressBound(srcSize)`.
@@ -130,6 +131,13 @@ ZSTDLIB_API size_t ZSTD_compress( void* dst, size_t dstCapacity,
  *            or an errorCode if it fails (which can be tested using ZSTD_isError()). */
 ZSTDLIB_API size_t ZSTD_decompress( void* dst, size_t dstCapacity,
                               const void* src, size_t compressedSize);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_compress() and ZSTD_decompress() are not provided.
+ * See the Explicit Context section below.
+ */
+#endif
 
 /*! ZSTD_getFrameContentSize() : requires v1.3.0+
  *  `src` should point to the start of a ZSTD encoded frame.
@@ -187,6 +195,8 @@ ZSTDLIB_API int         ZSTD_maxCLevel(void);               /*!< maximum compres
 /***************************************
 *  Explicit context
 ***************************************/
+typedef struct ZSTD_CCtx_s ZSTD_CCtx;
+#ifndef ZSTD_NO_MALLOC
 /*= Compression context
  *  When compressing many times,
  *  it is recommended to allocate a context just once,
@@ -197,8 +207,14 @@ ZSTDLIB_API int         ZSTD_maxCLevel(void);               /*!< maximum compres
  *  Note 2 : In multi-threaded environments,
  *         use one different context per thread for parallel execution.
  */
-typedef struct ZSTD_CCtx_s ZSTD_CCtx;
 ZSTDLIB_API ZSTD_CCtx* ZSTD_createCCtx(void);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_createCCtx() is not provided.
+ * See ZSTD_createCCtx_advanced() & ZSTD_initStaticCCtx().
+ */
+#endif
 ZSTDLIB_API size_t     ZSTD_freeCCtx(ZSTD_CCtx* cctx);
 
 /*! ZSTD_compressCCtx() :
@@ -214,14 +230,22 @@ ZSTDLIB_API size_t ZSTD_compressCCtx(ZSTD_CCtx* cctx,
                                const void* src, size_t srcSize,
                                      int compressionLevel);
 
+typedef struct ZSTD_DCtx_s ZSTD_DCtx;
+#ifndef ZSTD_NO_MALLOC
 /*= Decompression context
  *  When decompressing many times,
  *  it is recommended to allocate a context only once,
  *  and re-use it for each successive compression operation.
  *  This will make workload friendlier for system's memory.
  *  Use one context per thread for parallel execution. */
-typedef struct ZSTD_DCtx_s ZSTD_DCtx;
 ZSTDLIB_API ZSTD_DCtx* ZSTD_createDCtx(void);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_createDCtx() is not provided.
+ * See ZSTD_createDCtx_advanced() & ZSTD_initStaticDCtx().
+ */
+#endif
 ZSTDLIB_API size_t     ZSTD_freeDCtx(ZSTD_DCtx* dctx);
 
 /*! ZSTD_decompressDCtx() :
@@ -652,7 +676,15 @@ typedef struct ZSTD_outBuffer_s {
 typedef ZSTD_CCtx ZSTD_CStream;  /**< CCtx and CStream are now effectively same object (>= v1.3.0) */
                                  /* Continue to distinguish them for compatibility with older versions <= v1.2.0 */
 /*===== ZSTD_CStream management functions =====*/
+#ifndef ZSTD_NO_MALLOC
 ZSTDLIB_API ZSTD_CStream* ZSTD_createCStream(void);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_createCStream() is not provided.
+ * See ZSTD_createCStream_advanced() & ZSTD_initStaticCStream().
+ */
+#endif
 ZSTDLIB_API size_t ZSTD_freeCStream(ZSTD_CStream* zcs);
 
 /*===== Streaming compression functions =====*/
@@ -772,7 +804,15 @@ ZSTDLIB_API size_t ZSTD_endStream(ZSTD_CStream* zcs, ZSTD_outBuffer* output);
 typedef ZSTD_DCtx ZSTD_DStream;  /**< DCtx and DStream are now effectively same object (>= v1.3.0) */
                                  /* For compatibility with versions <= v1.2.0, prefer differentiating them. */
 /*===== ZSTD_DStream management functions =====*/
+#ifndef ZSTD_NO_MALLOC
 ZSTDLIB_API ZSTD_DStream* ZSTD_createDStream(void);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_createDStream() is not provided.
+ * See ZSTD_createDStream_advanced() & ZSTD_initStaticDStream().
+ */
+#endif
 ZSTDLIB_API size_t ZSTD_freeDStream(ZSTD_DStream* zds);
 
 /*===== Streaming decompression functions =====*/
@@ -823,6 +863,7 @@ ZSTDLIB_API size_t ZSTD_decompress_usingDict(ZSTD_DCtx* dctx,
  **********************************/
 typedef struct ZSTD_CDict_s ZSTD_CDict;
 
+#ifndef ZSTD_NO_MALLOC
 /*! ZSTD_createCDict() :
  *  When compressing multiple messages or blocks using the same dictionary,
  *  it's recommended to digest the dictionary only once, since it's a costly operation.
@@ -837,6 +878,13 @@ typedef struct ZSTD_CDict_s ZSTD_CDict;
  *      expecting a ZSTD_CDict parameter with any data, including those without a known dictionary. */
 ZSTDLIB_API ZSTD_CDict* ZSTD_createCDict(const void* dictBuffer, size_t dictSize,
                                          int compressionLevel);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_createCDict() is not provided.
+ * See ZSTD_createCDict_advanced() & ZSTD_initStaticCDict().
+ */
+#endif
 
 /*! ZSTD_freeCDict() :
  *  Function frees memory allocated by ZSTD_createCDict(). */
@@ -855,10 +903,18 @@ ZSTDLIB_API size_t ZSTD_compress_usingCDict(ZSTD_CCtx* cctx,
 
 typedef struct ZSTD_DDict_s ZSTD_DDict;
 
+#ifndef ZSTD_NO_MALLOC
 /*! ZSTD_createDDict() :
  *  Create a digested dictionary, ready to start decompression operation without startup delay.
  *  dictBuffer can be released after DDict creation, as its content is copied inside DDict. */
 ZSTDLIB_API ZSTD_DDict* ZSTD_createDDict(const void* dictBuffer, size_t dictSize);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_createDDict() is not provided.
+ * See ZSTD_createDDict_advanced() & ZSTD_initStaticDDict().
+ */
+#endif
 
 /*! ZSTD_freeDDict() :
  *  Function frees memory allocated with ZSTD_createDDict() */
@@ -1327,7 +1383,9 @@ ZSTDLIB_API size_t ZSTD_estimateDCtxSize(void);
  *         In this case, get total size by adding ZSTD_estimate?DictSize */
 ZSTDLIB_API size_t ZSTD_estimateCStreamSize(int compressionLevel);
 ZSTDLIB_API size_t ZSTD_estimateCStreamSize_usingCParams(ZSTD_compressionParameters cParams);
+#ifndef ZSTD_NO_MALLOC
 ZSTDLIB_API size_t ZSTD_estimateCStreamSize_usingCCtxParams(const ZSTD_CCtx_params* params);
+#endif
 ZSTDLIB_API size_t ZSTD_estimateDStreamSize(size_t windowSize);
 ZSTDLIB_API size_t ZSTD_estimateDStreamSize_fromFrame(const void* src, size_t srcSize);
 
@@ -1543,6 +1601,7 @@ ZSTDLIB_API size_t ZSTD_CCtx_refPrefix_advanced(ZSTD_CCtx* cctx, const void* pre
 ZSTDLIB_API size_t ZSTD_CCtx_getParameter(ZSTD_CCtx* cctx, ZSTD_cParameter param, int* value);
 
 
+#ifndef ZSTD_NO_MALLOC
 /*! ZSTD_CCtx_params :
  *  Quick howto :
  *  - ZSTD_createCCtxParams() : Create a ZSTD_CCtx_params structure
@@ -1606,6 +1665,13 @@ ZSTDLIB_API size_t ZSTD_CCtxParams_getParameter(ZSTD_CCtx_params* params, ZSTD_c
  */
 ZSTDLIB_API size_t ZSTD_CCtx_setParametersUsingCCtxParams(
         ZSTD_CCtx* cctx, const ZSTD_CCtx_params* params);
+#else
+/**
+ * Zstd has been compiled without malloc() or free().
+ * In this mode ZSTD_CCtx_params are not provided.
+ * Set the parameters directly in the ZSTD_CCtx using ZSTD_CCtx_setParameter().
+ */
+#endif
 
 /*! ZSTD_compressStream2_simpleArgs() :
  *  Same as ZSTD_compressStream2(),
