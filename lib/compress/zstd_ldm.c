@@ -605,6 +605,7 @@ size_t ZSTD_ldm_blockCompress(rawSeqStore_t* rawSeqStore,
                 rep[i] = rep[i-1];
             rep[0] = sequence.offset;
             /* Store the sequence */
+	    DEBUGLOG(5, "LDM seq");
             ZSTD_storeSeq(seqStore, newLitLength, ip - newLitLength, iend,
                           sequence.offset + ZSTD_REP_MOVE,
                           sequence.matchLength - MINMATCH);
