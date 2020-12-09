@@ -844,7 +844,7 @@ size_t ZSTD_execSequence(BYTE* op,
      */
     assert(WILDCOPY_OVERLENGTH >= 16);
     ZSTD_copy16(op, (*litPtr));
-    if (UNLIKELY(sequence.litLength > 16)) {
+    if (sequence.litLength > 16) {
         ZSTD_wildcopy(op+16, (*litPtr)+16, sequence.litLength-16, ZSTD_no_overlap);
     }
     op = oLitEnd;
