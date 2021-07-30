@@ -1034,8 +1034,8 @@ size_t HUF_readDTableX2_wksp(HUF_DTable* DTable,
     ZSTD_memset(wksp->rankStart0, 0, sizeof(wksp->rankStart0));
 
     DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(HUF_DTable));   /* if compiler fails here, assertion is wrong */
-    if (maxTableLog > HUF_TABLELOG_MAX) return ERROR(tableLog_tooLarge);
-    if (maxTableLog < HUF_TABLELOG_MAX) maxTableLog = HUF_TABLELOG_MAX;
+    if (maxTableLog > 11) maxTableLog = 11;
+    if (maxTableLog < 11) maxTableLog = 11;
     /* ZSTD_memset(weightList, 0, sizeof(weightList)); */  /* is not necessary, even though some analyzer complain ... */
 
     iSize = HUF_readStats_wksp(wksp->weightList, HUF_SYMBOLVALUE_MAX + 1, wksp->rankStats, &nbSymbols, &tableLog, src, srcSize, wksp->calleeWksp, sizeof(wksp->calleeWksp), /* bmi2 */ 0);
@@ -1341,7 +1341,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
     BYTE* const oend = (BYTE*)dst + dstSize;
 
     if (cSrcSize < 10) return ERROR(corruption_detected);   /* strict minimum : jump table + 1 byte per stream */
-    if (cSrcSize < 10 + 64 * 4 || dtLog != 12) return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
+    if (cSrcSize < 10 + 64 * 4 || dtLog != 11) return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
 
     {   const BYTE* const istart = (const BYTE*) cSrc;
 
@@ -1580,6 +1580,7 @@ static const algo_time_t algoTime[16 /* Quantization */][3 /* single, double, qu
 U32 HUF_selectDecoder (size_t dstSize, size_t cSrcSize)
 {
     // return 0;
+    // return 1;
     assert(dstSize > 0);
     assert(dstSize <= 128*1024);
 #if defined(HUF_FORCE_DECOMPRESS_X1)

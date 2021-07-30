@@ -324,6 +324,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	movq 88(%rax), %bits3
 	movq 96(%rax), %dtable
 	push %rax      # argument
+	push %rax      # olimit
 	push 104(%rax) # ilimit
 
 	movq 112(%rax), %rax
@@ -357,7 +358,8 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 
 	movq 0(%rsp), %rax # rax = oend0
 	subq %op0,    %rax # rax = oend0 - op0
-	shrq $3,      %rax # rax = (oend0 - op0) / 8
+	# TODO: We need divide by 10, not 16
+	shrq $4,      %rax # rax = (oend0 - op0) / 16
 
 	# r15 = min(%rax, %r15)
 	cmpq  %rax, %r15
@@ -365,7 +367,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 
 	movq 8(%rsp), %rax # rax = oend1
 	subq %op1,    %rax # rax = oend1 - op1
-	shrq $3,      %rax # rax = (oend1 - op1) / 8
+	shrq $4,      %rax # rax = (oend1 - op1) / 16
 
 	# r15 = min(%rax, %r15)
 	cmpq  %rax, %r15
@@ -373,7 +375,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 
 	movq 16(%rsp), %rax # rax = oend2
 	subq %op2,     %rax # rax = oend2 - op2
-	shrq $3,       %rax # rax = (oend2 - op2) / 8
+	shrq $4,       %rax # rax = (oend2 - op2) / 16
 
 	# r15 = min(%rax, %r15)
 	cmpq  %rax, %r15
@@ -381,14 +383,16 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 
 	movq 24(%rsp), %rax # rax = oend3
 	subq %op3,     %rax # rax = oend3 - op3
-	shrq $3,       %rax # rax = (oend3 - op3) / 8
+	shrq $4,       %rax # rax = (oend3 - op3) / 16
 
 	# r15 = min(%rax, %r15)
 	cmpq  %rax, %r15
 	cmova %rax, %r15
 
-	# olimit = op3 + 4 * r15
-	leaq (%op3, %r15, 4), %olimit
+	# olimit = op3 + 5 * r15
+	movq %r15, %rax
+	leaq (%op3, %rax, 4), %olimit
+	addq %rax, %olimit
 
 	# - if (op3 + 16 > olimit)
 	movq %op3, %rax # rax = op3
@@ -408,6 +412,8 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	cmpq %ip2, %ip3
 	jb .L_4X2_exit
 
+	movq %olimit, 40(%rsp)
+
 	.p2align 6
 
 .L_4X2_loop_body:
@@ -417,12 +423,12 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	# shrq $53, %rax;
 #define DECODE(n, idx) \
 	movq %bits##n, %rax; \
-	shrq $52, %rax; \
-	movl 0(%dtable,%rax,4),%r8d; \
-	movzwl 2(%dtable,%rax,4),%r9d; \
+	shrq $53, %rax; \
+	movzwl 0(%dtable,%rax,4),%r8d; \
+	movzbl 2(%dtable,%rax,4),%r15d; \
 	movzbl 3(%dtable,%rax,4),%eax; \
-	movl %r8d, (%op##n); \
-	shlxq %r9, %bits##n, %bits##n; \
+	movw %r8w, (%op##n); \
+	shlxq %r15, %bits##n, %bits##n; \
 	addq %rax, %op##n
 
 #define RELOAD(n) \
@@ -436,7 +442,6 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	shlxq %rax, %bits##n, %bits##n; \
 
 	movq %r8, -8(%rsp)
-	movq %r9, -16(%rsp)
 
 	DECODE(0, 0)
 	DECODE(1, 0)
@@ -458,7 +463,11 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	DECODE(2, 3)
 	DECODE(3, 3)
 
-	movq -16(%rsp), %r9
+	DECODE(0, 4)
+	DECODE(1, 4)
+	DECODE(2, 4)
+	DECODE(3, 4)
+
 	movq -8(%rsp), %r8
 
 	RELOAD(0)
@@ -469,7 +478,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 #undef DECODE
 #undef RELOAD
 
-	cmp %op3, %olimit
+	cmp %op3, 40(%rsp)
 	ja .L_4X2_loop_body
 	jmp .L_4X2_compute_olimit
 # LLVM-MCA-END
@@ -480,6 +489,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	pop %rax # oend2
 	pop %rax # oend3
 	pop %rax # ilimit
+	pop %rax # olimit
 	pop %rax # arg
 
 	# Save ip / op / bits
