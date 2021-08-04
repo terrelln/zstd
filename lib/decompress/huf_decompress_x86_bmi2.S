@@ -358,7 +358,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 
 	movq 0(%rsp), %rax # rax = oend0
 	subq %op0,    %rax # rax = oend0 - op0
-	# TODO: We need divide by 10, not 16
+	# TODO: We need divide by 10, nott 16
 	shrq $4,      %rax # rax = (oend0 - op0) / 16
 
 	# r15 = min(%rax, %r15)

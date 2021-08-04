@@ -353,6 +353,9 @@ size_t HUF_decompress4X_hufOnly_wksp_bmi2(HUF_DTable* dctx, void* dst, size_t ds
 #ifndef HUF_FORCE_DECOMPRESS_X2
 size_t HUF_readDTableX1_wksp_bmi2(HUF_DTable* DTable, const void* src, size_t srcSize, void* workSpace, size_t wkspSize, int bmi2);
 #endif
+#ifndef HUF_FORCE_DECOMPRESS_X1
+size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable, const void* src, size_t srcSize, void* workSpace, size_t wkspSize, int bmi2);
+#endif
 
 #endif /* HUF_STATIC_LINKING_ONLY */
 
