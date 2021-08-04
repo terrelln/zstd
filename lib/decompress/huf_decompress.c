@@ -903,7 +903,7 @@ typedef struct { U32 nbBits : 8; U32 sequence : 16; U32 length : 8; } HUF_DEltX2
 #else
 typedef struct { U16 sequence; BYTE nbBits; BYTE length; } HUF_DEltX2;  /* double-symbols decoding */
 #endif
-typedef struct { BYTE symbol; BYTE weight; } sortedSymbol_t;
+typedef struct { BYTE symbol; } sortedSymbol_t;
 typedef U32 rankValCol_t[HUF_TABLELOG_MAX + 1];
 typedef rankValCol_t rankVal_t[HUF_TABLELOG_MAX];
 
@@ -915,25 +915,43 @@ static void setSeq(HUF_DEltX2* delt, uint16_t seq) {
 #endif
 }
 
-static HUF_DEltX2 HUF_buildDEltX2(U32 symbol, U32 nbBits, U16 baseSeq, int level)
+static U32 HUF_buildDEltX2U32(U32 symbol, U32 nbBits, U32 baseSeq, int level)
+{
+    DEBUG_STATIC_ASSERT(offsetof(HUF_DEltX2, sequence) == 0);
+    DEBUG_STATIC_ASSERT(offsetof(HUF_DEltX2, nbBits) == 2);
+    DEBUG_STATIC_ASSERT(offsetof(HUF_DEltX2, length) == 3);
+    DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(U32));
+    U32 seq;
+    if (MEM_isLittleEndian()) {
+        seq = level == 1 ? symbol : (baseSeq + (symbol << 8));
+    } else {
+        seq = level == 1 ? (symbol << 8) : ((baseSeq << 8) + symbol);
+    }
+    U32 const val = seq + (nbBits << 16) + ((U32)level << 24);
+    return val;
+}
+
+static HUF_DEltX2 HUF_buildDEltX2(U32 symbol, U32 nbBits, U32 baseSeq, int level)
 {
     HUF_DEltX2 DElt;
-    if (level == 1)
-        setSeq(&DElt, symbol);
-    else
-        setSeq(&DElt, (U16)(baseSeq + (symbol << 8)));
-    DElt.nbBits = (BYTE)nbBits;
-    DElt.length = level;
+    if (1) {
+        U32 const val = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
+        memcpy(&DElt, &val, sizeof(val));
+    } else {
+        if (level == 1)
+            setSeq(&DElt, symbol);
+        else
+            setSeq(&DElt, (U16)(baseSeq + (symbol << 8)));
+        DElt.nbBits = (BYTE)nbBits;
+        DElt.length = level;
+    }
     return DElt;
 }
 
 static U64 HUF_buildDEltX2U64(U32 symbol, U32 nbBits, U16 baseSeq, int level)
 {
-    HUF_DEltX2 DElt = HUF_buildDEltX2(symbol, nbBits, baseSeq, level);
-    U64 DEltX2;
-    memcpy((BYTE*)&DEltX2 + 0, &DElt, sizeof(DElt));
-    memcpy((BYTE*)&DEltX2 + 4, &DElt, sizeof(DElt));
-    return DEltX2;
+    U32 DElt = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
+    return (U64)DElt + ((U64)DElt << 32);
 }
 
 static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t const* begin, sortedSymbol_t const* end, U32 const weight, U32 nbBitsBaseline, U32 targetLog, U32 consumedBits, U32 outPos, U16 baseSeq, int const level)
@@ -947,14 +965,15 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
     case 1:
         for (ptr = begin; ptr != end; ++ptr) {
             HUF_DEltX2 const DElt = HUF_buildDEltX2(ptr->symbol, totalBits, baseSeq, level);
-            assert(weight == ptr->weight);
+            // assert(weight == ptr->weight);
             DTable[outPos++] = DElt;
+            // DTable[outPos++] = DElt;
         }
         break;
     case 2:
         for (ptr = begin; ptr != end; ++ptr) {
             HUF_DEltX2 const DElt = HUF_buildDEltX2(ptr->symbol, totalBits, baseSeq, level);
-            assert(weight == ptr->weight);
+            // assert(weight == ptr->weight);
             DTable[outPos + 0] = DElt;
             DTable[outPos + 1] = DElt;
             outPos += 2;
@@ -963,7 +982,7 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
     case 4:
         for (ptr = begin; ptr != end; ++ptr) {
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, totalBits, baseSeq, level);
-            assert(weight == ptr->weight);
+            // assert(weight == ptr->weight);
             memcpy(DTable + outPos + 0, &DEltX2, sizeof(DEltX2));
             memcpy(DTable + outPos + 2, &DEltX2, sizeof(DEltX2));
             outPos += 4;
@@ -972,7 +991,7 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
     case 8:
         for (ptr = begin; ptr != end; ++ptr) {
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, totalBits, baseSeq, level);
-            assert(weight == ptr->weight);
+            // assert(weight == ptr->weight);
             memcpy(DTable + outPos + 0, &DEltX2, sizeof(DEltX2));
             memcpy(DTable + outPos + 2, &DEltX2, sizeof(DEltX2));
             memcpy(DTable + outPos + 4, &DEltX2, sizeof(DEltX2));
@@ -985,7 +1004,7 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, totalBits, baseSeq, level);
             U32 const endPos = outPos + length;
             int pos;
-            assert(weight == ptr->weight);
+            // assert(weight == ptr->weight);
             for (pos = (int)outPos; pos != (int)endPos; pos += 8) {
                 memcpy(DTable + pos + 0, &DEltX2, sizeof(DEltX2));
                 memcpy(DTable + pos + 2, &DEltX2, sizeof(DEltX2));
@@ -1002,7 +1021,7 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
 /* HUF_fillDTableX2Level2() :
  * `rankValOrigin` must be a table of at least (HUF_TABLELOG_MAX + 1) U32 */
 static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 consumedBits,
-                           const U32* rankValOrigin, const int minWeight, const int maxWeight1,
+                           const U32* rankVal, const int minWeight, const int maxWeight1,
                            const sortedSymbol_t* sortedSymbols, U32 const* rankStart,
                            U32 nbBitsBaseline, U16 baseSeq)
 {
@@ -1010,7 +1029,7 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
     if (minWeight>1) {
         U32 const length = 1u << (targetLog - consumedBits);
         U64 const DEltX2 = HUF_buildDEltX2U64(baseSeq, consumedBits, 0, 1);
-        int const skipSize = rankValOrigin[minWeight];
+        int const skipSize = rankVal[minWeight];
         int i;
         assert(length > 1);
         switch (length) {
@@ -1044,7 +1063,7 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
         for (w = minWeight; w < maxWeight1; ++w) {
             int const begin = rankStart[w];
             int const end = rankStart[w+1];
-            HUF_fillDTableX2ForWeight(DTable, sortedSymbols + begin, sortedSymbols + end, w, nbBitsBaseline, targetLog, consumedBits, rankValOrigin[w], baseSeq, /* level */ 2);
+            HUF_fillDTableX2ForWeight(DTable, sortedSymbols + begin, sortedSymbols + end, w, nbBitsBaseline, targetLog, consumedBits, rankVal[w], baseSeq, /* level */ 2);
 
         }
     }
@@ -1053,19 +1072,13 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
 static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
                            const sortedSymbol_t* sortedList,
                            const U32* rankStart, rankVal_t rankValOrigin, const U32 maxWeight,
-                           const U32 nbBitsBaseline, U32* wksp, size_t wkspSize)
+                           const U32 nbBitsBaseline)
 {
-    U32* rankVal = wksp;
+    U32 * const rankVal = rankValOrigin[0];
     const int scaleLog = nbBitsBaseline - targetLog;   /* note : targetLog >= srcLog, hence scaleLog <= 1 */
     const U32 minBits  = nbBitsBaseline - maxWeight;
     int w;
     int const wEnd = (int)maxWeight + 1;
-
-    assert(wkspSize >= HUF_TABLELOG_MAX + 1);
-    wksp += HUF_TABLELOG_MAX + 1;
-    wkspSize -= HUF_TABLELOG_MAX + 1;
-
-    ZSTD_memcpy(rankVal, rankValOrigin, sizeof(U32) * (HUF_TABLELOG_MAX + 1));
 
     /* fill DTable */
     DEBUGLOG(2, "begin");
@@ -1074,27 +1087,25 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
         int const end = (int)rankStart[w+1];
         U32 const nbBits = nbBitsBaseline - w;
         DEBUGLOG(2, "#weight[%d] = %d", w, end - begin);
-        U32 const x = rankVal[w];
         if (targetLog-nbBits >= minBits) {   /* enough room for a second symbol */
-            U32 const length = 1u << (targetLog - nbBits);
+            int start = rankVal[w];
+            int const length = 1 << (targetLog - nbBits);
             int minWeight = nbBits + scaleLog;
             int s;
             DEBUGLOG(2, "\tLevel 2");
             if (minWeight < 1) minWeight = 1;
             for (s = begin; s != end; ++s) {
-                U32 const start = rankVal[w];
-                assert(sortedList[s].weight == w);
+                // assert(sortedList[s].weight == w);
                 HUF_fillDTableX2Level2(DTable+start, targetLog, nbBits,
                             rankValOrigin[nbBits], minWeight, wEnd,
                             sortedList, rankStart,
                             nbBitsBaseline, sortedList[s].symbol);
-                rankVal[w] += length;
+                start += length;
             }
         } else {
             DEBUGLOG(2, "\tLevel 1");
-            rankVal[w] = HUF_fillDTableX2ForWeight(DTable, sortedList + begin, sortedList + end, w, nbBitsBaseline, targetLog, /* consumedBits */ 0, rankVal[w], /* baseSeq */ 0, /* level */ 1);
+            HUF_fillDTableX2ForWeight(DTable, sortedList + begin, sortedList + end, w, nbBitsBaseline, targetLog, /* consumedBits */ 0, rankVal[w], /* baseSeq */ 0, /* level */ 1);
         }
-        DEBUGLOG(2, "\t#sym = %u", rankVal[w] - x);
     }
     DEBUGLOG(2, "end");
 }
@@ -1167,7 +1178,7 @@ size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable,
             U32 const w = wksp->weightList[s];
             U32 const r = rankStart[w]++;
             wksp->sortedSymbol[r].symbol = (BYTE)s;
-            wksp->sortedSymbol[r].weight = (BYTE)w;
+            // wksp->sortedSymbol[r].weight = (BYTE)w;
         }
         rankStart[0] = 0;   /* forget 0w symbols; this is beginning of weight(1) */
     }
@@ -1194,8 +1205,7 @@ size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable,
     HUF_fillDTableX2(dt, maxTableLog,
                    wksp->sortedSymbol,
                    wksp->rankStart0, wksp->rankVal, maxW,
-                   tableLog+1,
-                   wksp->calleeWksp, sizeof(wksp->calleeWksp) / sizeof(U32));
+                   tableLog+1);
 
     dtd.tableLog = (BYTE)maxTableLog;
     dtd.tableType = 1;
@@ -1211,7 +1221,8 @@ HUF_decodeSymbolX2(void* op, BIT_DStream_t* DStream, const HUF_DEltX2* dt, const
 #if kPacked
     memcpy(op, (uint8_t const*)&dt[val] + 1, 2);
 #else
-    memcpy(op, (uint8_t const*)&dt[val] + offsetof(HUF_DEltX2, sequence), 2);
+    memcpy(op, dt + val, 2);
+    // memcpy(op, (uint8_t const*)&dt[val] + offsetof(HUF_DEltX2, sequence), 2);
 #endif
     BIT_skipBits(DStream, dt[val].nbBits);
     return dt[val].length;
@@ -1254,12 +1265,23 @@ HUF_decodeStreamX2(BYTE* p, BIT_DStream_t* bitDPtr, BYTE* const pEnd,
 {
     BYTE* const pStart = p;
 
-    /* up to 8 symbols at a time */
-    while ((BIT_reloadDStream(bitDPtr) == BIT_DStream_unfinished) & (p < pEnd-(sizeof(bitDPtr->bitContainer)-1))) {
-        HUF_DECODE_SYMBOLX2_2(p, bitDPtr);
-        HUF_DECODE_SYMBOLX2_1(p, bitDPtr);
-        HUF_DECODE_SYMBOLX2_2(p, bitDPtr);
-        HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+    if (dtLog <= 11 && MEM_64bits()) {
+        /* up to 10 symbols at a time */
+        while ((BIT_reloadDStream(bitDPtr) == BIT_DStream_unfinished) & (p < pEnd-9)) {
+            HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+        }
+    } else {
+        /* up to 8 symbols at a time */
+        while ((BIT_reloadDStream(bitDPtr) == BIT_DStream_unfinished) & (p < pEnd-(sizeof(bitDPtr->bitContainer)-1))) {
+            HUF_DECODE_SYMBOLX2_2(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_1(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_2(p, bitDPtr);
+            HUF_DECODE_SYMBOLX2_0(p, bitDPtr);
+        }
     }
 
     /* closer to end : up to 2 symbols at a time */
@@ -1430,11 +1452,12 @@ size_t HUF_decompress4X2_usingDTable_internal_default(void* dst, size_t dstSize,
 
 void HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(HUF_decompress4X1_AsmArgs* args);
 
-static size_t
+static TARGET_ATTRIBUTE("bmi2") size_t
 HUF_decompress4X2_usingDTable_internal_bmi2_asm(
           void* dst,  size_t dstSize,
     const void* cSrc, size_t cSrcSize,
     const HUF_DTable* DTable) {
+    U32 const kDTLog = 11;
     const HUF_DEltX2* dt = (const HUF_DEltX2*)(void const*)(DTable + 1);
     U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
 
@@ -1444,7 +1467,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
     BYTE* const oend = (BYTE*)dst + dstSize;
 
     if (cSrcSize < 10) return ERROR(corruption_detected);   /* strict minimum : jump table + 1 byte per stream */
-    if (cSrcSize < 10 + 64 * 4 || dtLog != 11) return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
+    if (cSrcSize < 10 + 64 * 4 || dtLog != kDTLog) return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
 
     {   const BYTE* const istart = (const BYTE*) cSrc;
 
@@ -1498,7 +1521,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
         assert(args.op[3] <= oend);
 
         /* finish bitStreams one by one */
-        DEBUGLOG(2, "4x2");
+        DEBUGLOG(3, "4x2");
         {
             size_t const segmentSize = (dstSize+3) / 4;
             BYTE* segmentEnd = (BYTE*)dst;
@@ -1516,7 +1539,9 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
                 bit.start = (const char*)iend[0];
                 bit.limitPtr = bit.start + sizeof(size_t);
                 bit.ptr = (const char*)args.ip[i];
-                DEBUGLOG(2, "remaining[%d] = %zu / %zu", i, (size_t)(segmentEnd - args.op[i]), segmentSize);                args.op[i] += HUF_decodeStreamX2(args.op[i], &bit, segmentEnd, dt, dtLog);
+                DEBUGLOG(2, "remaining[%d] = %zu / %zu", i, (size_t)(segmentEnd - args.op[i]), segmentSize);
+                assert(dtLog == kDTLog);
+                args.op[i] += HUF_decodeStreamX2(args.op[i], &bit, segmentEnd, dt, kDTLog);
                 if (args.op[i] != segmentEnd) { DEBUGLOG(2, "finish bad"); return ERROR(corruption_detected);}
             }
         }
@@ -1658,20 +1683,20 @@ static const algo_time_t algoTime[16 /* Quantization */][3 /* single, double, qu
     /* single, double, quad */
     {{0,0}, {1,1}, {2,2}},  /* Q==0 : impossible */
     {{0,0}, {1,1}, {2,2}},  /* Q==1 : impossible */
-    {{ 150,216}, {1048,119}, {2151, 38}},   /* Q == 2 : 12-18% */
-    {{ 170,205}, {1263,112}, {2238, 41}},   /* Q == 3 : 18-25% */
-    {{ 177,199}, {1311,110}, {2238, 47}},   /* Q == 4 : 25-32% */
-    {{ 197,194}, {1837,107}, {2436, 53}},   /* Q == 5 : 32-38% */
-    {{ 221,192}, {2252,107}, {2464, 61}},   /* Q == 6 : 38-44% */
-    {{ 256,189}, {2967,106}, {2622, 68}},   /* Q == 7 : 44-50% */
-    {{ 359,188}, {3904,109}, {2730, 75}},   /* Q == 8 : 50-56% */
-    {{ 582,187}, {5282,114}, {3359, 77}},   /* Q == 9 : 56-62% */
-    {{ 688,187}, {6440,122}, {4006, 84}},   /* Q ==10 : 62-69% */
-    {{ 825,186}, {7189,136}, {4785, 88}},   /* Q ==11 : 69-75% */
-    {{ 976,185}, {7940,150}, {5155, 84}},   /* Q ==12 : 75-81% */
-    {{1180,186}, {6402,175}, {5260,106}},   /* Q ==13 : 81-87% */
-    {{1377,185}, {3959,202}, {4174,124}},   /* Q ==14 : 87-93% */
-    {{1412,185}, {3781,202}, {1936,146}},   /* Q ==15 : 93-99% */
+    {{ 150,216}, { 381,119}, {2151, 38}},   /* Q == 2 : 12-18% */
+    {{ 170,205}, { 514,112}, {2238, 41}},   /* Q == 3 : 18-25% */
+    {{ 177,199}, { 539,110}, {2238, 47}},   /* Q == 4 : 25-32% */
+    {{ 197,194}, { 644,107}, {2436, 53}},   /* Q == 5 : 32-38% */
+    {{ 221,192}, { 735,107}, {2464, 61}},   /* Q == 6 : 38-44% */
+    {{ 256,189}, { 881,106}, {2622, 68}},   /* Q == 7 : 44-50% */
+    {{ 359,188}, {1167,109}, {2730, 75}},   /* Q == 8 : 50-56% */
+    {{ 582,187}, {1570,114}, {3359, 77}},   /* Q == 9 : 56-62% */
+    {{ 688,187}, {1712,122}, {4006, 84}},   /* Q ==10 : 62-69% */
+    {{ 825,186}, {1965,136}, {4785, 88}},   /* Q ==11 : 69-75% */
+    {{ 976,185}, {2131,150}, {5155, 84}},   /* Q ==12 : 75-81% */
+    {{1180,186}, {2070,175}, {5260,106}},   /* Q ==13 : 81-87% */
+    {{1377,185}, {1731,202}, {4174,124}},   /* Q ==14 : 87-93% */
+    {{1412,185}, {1695,202}, {1936,146}},   /* Q ==15 : 93-99% */
 };
 #endif
 
@@ -1700,7 +1725,7 @@ U32 HUF_selectDecoder (size_t dstSize, size_t cSrcSize)
         U32 const D256 = (U32)(dstSize >> 8);
         U32 const DTime0 = algoTime[Q][0].tableTime + (algoTime[Q][0].decode256Time * D256);
         U32 DTime1 = algoTime[Q][1].tableTime + (algoTime[Q][1].decode256Time * D256);
-        DTime1 += DTime1 >> 3;  /* advantage to algorithm using less memory, to reduce cache eviction */
+        DTime1 += DTime1 >> 5;  /* small advantage to algorithm using less memory, to reduce cache eviction */
         return DTime1 < DTime0;
     }
 #endif

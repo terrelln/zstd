@@ -348,56 +348,76 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	# %r15, %rax may be clobbered
 	# rdx must be saved
 	# op* & ip0 mustn't be clobbered
+	movq %rdx, -8(%rsp)
 
-	# We can only actually consume 6 bytes per
-	# iteration max, but computing 8 is much simpler.
-	movq %ip0,     %r15  # r15 = ip0
-	movq 32(%rsp), %rax  # rax = ilimit
-	subq %rax,     %r15  # r15 = ip0 - ilimit
-	shrq $3,       %r15  # r15 = (ip0 - ilimit) / 8
+	# We can consume up to 7 input bytes each iteration.
+	movq %ip0,     %rax  # rax = ip0
+	movq 32(%rsp), %rdx  # rdx = ilimit
+	subq %rdx,     %rax  # rax = ip0 - ilimit
+	movq %rax,    %r15   # r15 = ip0 - ilimit
 
+	# rdx = rax / 7
+	movabsq $2635249153387078803, %rdx
+	mulq %rdx
+	subq %rdx, %r15
+	shrq %r15
+	addq %r15, %rdx
+	shrq $2, %rdx
+
+	# r15 = (ip0 - ilimit) / 7
+	movq %rdx, %r15
+
+	movabsq $-3689348814741910323, %rdx
 	movq 0(%rsp), %rax # rax = oend0
 	subq %op0,    %rax # rax = oend0 - op0
-	# TODO: We need divide by 10, nott 16
-	shrq $4,      %rax # rax = (oend0 - op0) / 16
+	mulq %rdx
+	shrq $3,      %rdx # rdx = rax / 10
 
-	# r15 = min(%rax, %r15)
-	cmpq  %rax, %r15
-	cmova %rax, %r15
+	# r15 = min(%rdx, %r15)
+	cmpq  %rdx, %r15
+	cmova %rdx, %r15
 
+	movabsq $-3689348814741910323, %rdx
 	movq 8(%rsp), %rax # rax = oend1
 	subq %op1,    %rax # rax = oend1 - op1
-	shrq $4,      %rax # rax = (oend1 - op1) / 16
+	mulq %rdx
+	shrq $3,      %rdx # rdx = rax / 10
 
-	# r15 = min(%rax, %r15)
-	cmpq  %rax, %r15
-	cmova %rax, %r15
+	# r15 = min(%rdx, %r15)
+	cmpq  %rdx, %r15
+	cmova %rdx, %r15
 
+	movabsq $-3689348814741910323, %rdx
 	movq 16(%rsp), %rax # rax = oend2
-	subq %op2,     %rax # rax = oend2 - op2
-	shrq $4,       %rax # rax = (oend2 - op2) / 16
+	subq %op2,    %rax # rax = oend2 - op2
+	mulq %rdx
+	shrq $3,      %rdx # rdx = rax / 10
 
-	# r15 = min(%rax, %r15)
-	cmpq  %rax, %r15
-	cmova %rax, %r15
+	# r15 = min(%rdx, %r15)
+	cmpq  %rdx, %r15
+	cmova %rdx, %r15
 
+	movabsq $-3689348814741910323, %rdx
 	movq 24(%rsp), %rax # rax = oend3
-	subq %op3,     %rax # rax = oend3 - op3
-	shrq $4,       %rax # rax = (oend3 - op3) / 16
+	subq %op3,    %rax # rax = oend3 - op3
+	mulq %rdx
+	shrq $3,      %rdx # rdx = rax / 10
 
-	# r15 = min(%rax, %r15)
-	cmpq  %rax, %r15
-	cmova %rax, %r15
+	# r15 = min(%rdx, %r15)
+	cmpq  %rdx, %r15
+	cmova %rdx, %r15
 
 	# olimit = op3 + 5 * r15
 	movq %r15, %rax
 	leaq (%op3, %rax, 4), %olimit
 	addq %rax, %olimit
 
-	# - if (op3 + 16 > olimit)
+	movq -8(%rsp), %rdx
+
+	# - if (op3 + 10 > olimit)
 	movq %op3, %rax # rax = op3
-	addq $16,  %rax # rax = op3 + 16
-	cmpq %rax, %olimit # op3 + 16 > olimit
+	addq $10,  %rax # rax = op3 + 10
+	cmpq %rax, %olimit # op3 + 10 > olimit
 	jb .L_4X2_exit
 
 	# - if (ip1 < ip0) go to exit
