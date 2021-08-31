@@ -1064,7 +1064,6 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
             int const begin = rankStart[w];
             int const end = rankStart[w+1];
             HUF_fillDTableX2ForWeight(DTable, sortedSymbols + begin, sortedSymbols + end, w, nbBitsBaseline, targetLog, consumedBits, rankVal[w], baseSeq, /* level */ 2);
-
         }
     }
 }

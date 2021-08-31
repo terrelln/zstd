@@ -441,25 +441,25 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	# Index 0
 	# movq %bits##n, %rax;
 	# shrq $53, %rax;
-#define DECODE(n, idx) \
-	movq %bits##n, %rax; \
-	shrq $53, %rax; \
-	movzwl 0(%dtable,%rax,4),%r8d; \
+#define DECODE(n, idx)                  \
+	movq %bits##n, %rax;            \
+	shrq $53, %rax;                 \
+	movzwl 0(%dtable,%rax,4),%r8d;  \
 	movzbl 2(%dtable,%rax,4),%r15d; \
-	movzbl 3(%dtable,%rax,4),%eax; \
-	movw %r8w, (%op##n); \
+	movzbl 3(%dtable,%rax,4),%eax;  \
+	movw %r8w, (%op##n);            \
 	shlxq %r15, %bits##n, %bits##n; \
 	addq %rax, %op##n
 
-#define RELOAD(n) \
-	bsfq %bits##n, %bits##n; \
-	movq %bits##n, %rax; \
-	shrq $3, %bits##n; \
-	andq $7, %rax; \
-	subq %bits##n, %ip##n; \
-	movq (%ip##n), %bits##n; \
-	orq $1, %bits##n; \
-	shlxq %rax, %bits##n, %bits##n; \
+#define RELOAD(n)                       \
+	bsfq %bits##n, %bits##n;        \
+	movq %bits##n, %rax;            \
+	shrq $3, %bits##n;              \
+	andq $7, %rax;                  \
+	subq %bits##n, %ip##n;          \
+	movq (%ip##n), %bits##n;        \
+	orq $1, %bits##n;               \
+	shlxq %rax, %bits##n, %bits##n;
 
 	movq %r8, -8(%rsp)
 
