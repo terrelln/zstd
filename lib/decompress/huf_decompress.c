@@ -22,10 +22,12 @@
 #define HUF_STATIC_LINKING_ONLY
 #include "../common/huf.h"
 #include "../common/error_private.h"
-#include "../common/xxhash.h"
 
-#define kCheck 0
-#include <stdio.h>
+/* **************************************************************
+*  Constants
+****************************************************************/
+
+#define HUF_DECODER_FAST_TABLELOG 11
 
 /* **************************************************************
 *  Macros
@@ -40,6 +42,18 @@
 #error "Cannot force the use of the X1 and X2 decoders at the same time!"
 #endif
 
+/* HUF_DISABLE_ASM: Disables all ASM implementations.  */
+#if !defined(HUF_DISABLE_ASM) && (DYNAMIC_BMI2 || defined(__BMI2__))
+# define HUF_ENABLE_ASM_X86_64_BMI2 1
+#else
+# define HUF_ENABLE_ASM_X86_64_BMI2 0
+#endif
+
+#if HUF_ENABLE_ASM_X86_64_BMI2 && DYNAMIC_BMI2
+# define HUF_ASM_X86_64_BMI2_ATTRS TARGET_ATTRIBUTE("bmi2")
+#else
+# define HUF_ASM_X86_64_BMI2_ATTRS
+#endif
 
 /* **************************************************************
 *  Error Management
@@ -134,6 +148,31 @@ static U64 HUF_DEltX1_set4(BYTE symbol, BYTE nbBits) {
     return D4;
 }
 
+/**
+ * Increase the tableLog to targetTableLog and rescales the stats.
+ * @pre tableLog <= targetTableLog
+ * @returns targetTableLog
+ */
+static U32 HUF_rescaleStats(BYTE* huffWeight, U32* rankVal, U32 nbSymbols, U32 tableLog, U32 targetTableLog)
+{
+    assert(tableLog <= targetTableLog);
+    if (tableLog < targetTableLog) {
+        U32 const scale = targetTableLog - tableLog;
+        U32 s;
+        /* Increase the weight for all non-zero probability symbols by scale. */
+        for (s = 0; s < nbSymbols; ++s) {
+            huffWeight[s] += (huffWeight[s] == 0) ? 0 : scale;
+        }
+        /* Update rankVal to reflect the new weights.
+         * All weights except 0 get moved to weight + scale.
+         * Weights [1, scale] are empty.
+         */
+        ZSTD_memmove(rankVal + scale, rankVal, (targetTableLog - scale) * sizeof(rankVal[0]));
+        ZSTD_memset(rankVal + 1, 0, scale * sizeof(rankVal[0]));
+    }
+    return targetTableLog;
+}
+
 typedef struct {
         U32 rankVal[HUF_TABLELOG_ABSOLUTEMAX + 1];
         U32 rankStart[HUF_TABLELOG_ABSOLUTEMAX + 1];
@@ -166,20 +205,7 @@ size_t HUF_readDTableX1_wksp_bmi2(HUF_DTable* DTable, const void* src, size_t sr
     iSize = HUF_readStats_wksp(wksp->huffWeight, HUF_SYMBOLVALUE_MAX + 1, wksp->rankVal, &nbSymbols, &tableLog, src, srcSize, wksp->statsWksp, sizeof(wksp->statsWksp), bmi2);
     if (HUF_isError(iSize)) return iSize;
 
-    if (tableLog < 11) {
-        unsigned const scale = 11 - tableLog;
-        for (unsigned i = 0; i < nbSymbols; ++i) {
-            if (wksp->huffWeight[i] != 0)
-                wksp->huffWeight[i] += scale;
-        }
-        for (unsigned i = 11; i > scale; --i) {
-            wksp->rankVal[i] = wksp->rankVal[i - scale];
-        }
-        for (int i = scale; i > 0; --i) {
-            wksp->rankVal[i] = 0;
-        }
-        tableLog = 11;
-    }
+    tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, HUF_DECODER_FAST_TABLELOG);
 
     /* Table header */
     {   DTableDesc dtd = HUF_getDTableDesc(DTable);
@@ -459,17 +485,21 @@ HUF_decompress4X1_usingDTable_internal_body(
     }
 }
 
+#if DYNAMIC_BMI2
 static TARGET_ATTRIBUTE("bmi2")
 size_t HUF_decompress4X1_usingDTable_internal_bmi2(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable) {
     return HUF_decompress4X1_usingDTable_internal_body(dst, dstSize, cSrc, cSrcSize, DTable);
 }
+#endif
 
 static
 size_t HUF_decompress4X1_usingDTable_internal_default(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable) {
     return HUF_decompress4X1_usingDTable_internal_body(dst, dstSize, cSrc, cSrcSize, DTable);
 }
+
+#if HUF_ENABLE_ASM_X86_64_BMI2
 
 typedef struct {
     BYTE const* ip[4];
@@ -480,29 +510,21 @@ typedef struct {
     BYTE* oend;
 } HUF_decompress4X1_AsmArgs;
 
-static void printArgs(HUF_decompress4X1_AsmArgs const* args) {
-    DEBUGLOG(3, "args");
-    for (int i = 0; i < 4; ++i) {
-        DEBUGLOG(3, "ip[%d] = %p\top[%d] = %p\tbits[%d] = %llx", i, args->ip[i], i, args->op[i], i, args->bits[i]);
-    }
-    (void)args;
-}
-
 void HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(HUF_decompress4X1_AsmArgs* args);
 
-static size_t initValue(BYTE const* ip) {
+static size_t HUF_initDStream(BYTE const* ip) {
     size_t const value = MEM_readLEST(ip) | 1;
     size_t const lz = __builtin_clzll(value);
     assert(lz < 8);
     return value << (lz + 1);
 }
 
-static size_t
+static HUF_ASM_X86_64_BMI2_ATTRS size_t
 HUF_decompress4X1_usingDTable_internal_bmi2_asm(
           void* dst,  size_t dstSize,
     const void* cSrc, size_t cSrcSize,
     const HUF_DTable* DTable) {
-    const HUF_DEltX1* dt = (const HUF_DEltX1*)(void const*)(DTable + 1);
+    void const* dt = DTable + 1;
     U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
 
     const BYTE* const ilimit = (const BYTE*)cSrc + 8;
@@ -510,13 +532,20 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
     const BYTE* iend[4];
     BYTE* const oend = (BYTE*)dst + dstSize;
 
-    if (cSrcSize < 10) return ERROR(corruption_detected);   /* strict minimum : jump table + 1 byte per stream */
-    if (cSrcSize < 10 + 64 * 4 || dtLog != 11) return HUF_decompress4X1_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
+    /* strict minimum : jump table + 1 byte per stream */
+    if (cSrcSize < 10)
+        return ERROR(corruption_detected);
+
+    /* Must have at least 8 bytes per stream because we don't handle initializing smaller bit containers.
+     * If table log is not correct at this point, fallback to the old decoder.
+     */
+    if (cSrcSize < 10 + 64 * 4 || dtLog != HUF_DECODER_FAST_TABLELOG)
+        return HUF_decompress4X1_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
 
 
-    {   const BYTE* const istart = (const BYTE*) cSrc;
-
-        /* Init */
+    /* Read the jump table. */
+    {
+        const BYTE* const istart = (const BYTE*) cSrc;
         size_t const length1 = MEM_readLE16(istart);
         size_t const length2 = MEM_readLE16(istart+2);
         size_t const length3 = MEM_readLE16(istart+4);
@@ -526,6 +555,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
         iend[2] = iend[1] + length2;
         iend[3] = iend[2] + length3;
 
+        /* Already validated - HUF_initDStream() requires this. */
         assert(length1 >= 8);
         assert(length2 >= 8);
         assert(length3 >= 8);
@@ -534,38 +564,51 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
     }
     {
         HUF_decompress4X1_AsmArgs args;
+        /* ip[] contains the position that is currently loaded into bits[]. */
         args.ip[0] = iend[1] - sizeof(uint64_t);
         args.ip[1] = iend[2] - sizeof(uint64_t);
         args.ip[2] = iend[3] - sizeof(uint64_t);
         args.ip[3] = (BYTE const*)cSrc + cSrcSize - sizeof(uint64_t);
+
+        /* op[] contains the output pointers. */
         args.op[0] = (BYTE*)dst;
         args.op[1] = args.op[0] + (dstSize+3)/4;
         args.op[2] = args.op[1] + (dstSize+3)/4;
         args.op[3] = args.op[2] + (dstSize+3)/4;
 
-        args.bits[0] = initValue(args.ip[0]);
-        args.bits[1] = initValue(args.ip[1]);
-        args.bits[2] = initValue(args.ip[2]);
-        args.bits[3] = initValue(args.ip[3]);
+        /* bits[] is the bit container.
+         * It is read from the MSB down to the LSB.
+         * It is shifted left as it is read, and zeros are
+         * shifted in. After the lowest valid bit a 1 is
+         * set, so that CountTrailingZeros(bits[]) can be used
+         * to count how many bits we've consumed.
+         */
+        args.bits[0] = HUF_initDStream(args.ip[0]);
+        args.bits[1] = HUF_initDStream(args.ip[1]);
+        args.bits[2] = HUF_initDStream(args.ip[2]);
+        args.bits[3] = HUF_initDStream(args.ip[3]);
 
+        /* If ip[] >= ilimit, it is guaranteed to be safe to
+         * reload bits[]. It may be beyond its section, but is
+         * guaranteed to be valid (>= istart).
+         */
         args.ilimit = ilimit;
+
         args.oend = oend;
-        args.dt = (uint16_t const*)(void const*)dt;
+        args.dt = dt;
 
-        printArgs(&args);
         HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(&args);
-        printArgs(&args);
 
-
-        /* note : op4 already verified within main loop */
+        /* Our loop guarantees that ip[] >= ilimit and that we haven't
+         * overwritten any op[].
+         */
         assert(args.ip[0] >= ilimit);
         assert(args.ip[1] >= ilimit);
         assert(args.ip[2] >= ilimit);
         assert(args.ip[3] >= ilimit);
         assert(args.op[3] <= oend);
 
-        /* finish bitStreams one by one */
-        DEBUGLOG(2, "4x1");
+        /* finish bit streams one by one. */
         {
             size_t const segmentSize = (dstSize+3) / 4;
             BYTE* segmentEnd = (BYTE*)dst;
@@ -576,16 +619,23 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
                 else
                     segmentEnd = oend;
 
+                /* Validate that we haven't overwritten. */
                 if (args.op[i] > segmentEnd) return ERROR(corruption_detected);
+                /* Validate that we haven't read beyond iend[].
+                 * Note that ip[] may be < iend[] because the MSB is
+                 * the next bit to read, and we may have consumed 100%
+                 * of the stream, so down to iend[i] - 8 is valid.
+                 */
                 if (args.ip[i] < iend[i] - 8) return ERROR(corruption_detected);
 
+                /* Construct the BIT_DStream_t. */
                 bit.bitContainer = MEM_readLE64(args.ip[i]);
                 bit.bitsConsumed = __builtin_ctzll(args.bits[i]);
                 bit.start = (const char*)iend[0];
                 bit.limitPtr = bit.start + sizeof(size_t);
                 bit.ptr = (const char*)args.ip[i];
-                DEBUGLOG(2, "remaining[%d] = %zu / %zu", i, (size_t)(segmentEnd - args.op[i]), segmentSize);
-                args.op[i] += HUF_decodeStreamX1(args.op[i], &bit, segmentEnd, dt, dtLog);
+                /* Decompress and validate that we've produced exactly the expected length. */
+                args.op[i] += HUF_decodeStreamX1(args.op[i], &bit, segmentEnd, (HUF_DEltX1 const*)dt, dtLog);
                 if (args.op[i] != segmentEnd) return ERROR(corruption_detected);
             }
         }
@@ -594,214 +644,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
     /* decoded size */
     return dstSize;
 }
-
-#if 0
-static BYTE* compute_iters(BYTE const* ilimit, BYTE const* ip1, BYTE* op4, BYTE* oend)
-{
-    size_t const symbolsPerIter = 5;
-    size_t const maxBitsPerSymbol = 11;
-    size_t const bytesConsumedPerIter = (symbolsPerIter * maxBitsPerSymbol + 7) / 8;
-    size_t const bytesProducedPerIter = symbolsPerIter;
-
-    size_t const inIters = ip1 < ilimit ? 0 : (ip1 - ilimit) / bytesConsumedPerIter;
-    size_t const outIters = (oend - op4) / bytesProducedPerIter;
-    size_t const iters = inIters < outIters ? inIters : outIters;
-
-    return op4 + iters * symbolsPerIter;
-}
-
-static TARGET_ATTRIBUTE("bmi2") size_t
-HUF_decompress4X1_usingDTable_internal_bmi2_2(
-          void* dst,  size_t dstSize,
-    const void* cSrc, size_t cSrcSize,
-    const HUF_DTable* DTable)
-{
-    const HUF_DEltX1* dt = (const HUF_DEltX1*)(void const*)(DTable + 1);
-    U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
-
-    const BYTE* const ilimit = (const BYTE*)cSrc + 8;
-
-    const BYTE* iend[4];
-    BYTE* const oend = (BYTE*)dst + dstSize;
-
-    if (cSrcSize < 10) return ERROR(corruption_detected);   /* strict minimum : jump table + 1 byte per stream */
-    if (dtLog != 11 || cSrcSize < 10 + 64 * 4) return HUF_decompress4X1_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
-
-    {   const BYTE* const istart = (const BYTE*) cSrc;
-
-        /* Init */
-        size_t const length1 = MEM_readLE16(istart);
-        size_t const length2 = MEM_readLE16(istart+2);
-        size_t const length3 = MEM_readLE16(istart+4);
-        size_t const length4 = cSrcSize - (length1 + length2 + length3 + 6);
-        iend[0] = istart + 6;  /* jumpTable */
-        iend[1] = iend[0] + length1;
-        iend[2] = iend[1] + length2;
-        iend[3] = iend[2] + length3;
-
-        assert(length1 >= 8);
-        assert(length2 >= 8);
-        assert(length3 >= 8);
-        assert(length4 >= 8);
-        if (length4 > cSrcSize) return ERROR(corruption_detected);   /* overflow */
-    }
-
-#define GET(value) MEM_readLE16(dt + (value >> dtShift))
-#define USE(out, value, x) do { value <<= (BYTE)(x & 0xFF); out = (BYTE)(x >> 8); } while (0)
-#define RELOAD(op, ip, value) do { \
-        assert(value != 0); \
-        size_t const consumed = __builtin_ctzll(value); \
-        ip -= consumed >> 3; \
-        op += 5; \
-        value = MEM_readLE64(ip) | 1; \
-        value <<= consumed & 7; \
-    } while (0)
-
-    {
-        BYTE const* ip1 = iend[1] - sizeof(size_t);
-        BYTE const* ip2 = iend[2] - sizeof(size_t);
-        BYTE const* ip3 = iend[3] - sizeof(size_t);
-        BYTE const* ip4 = (BYTE const*)cSrc + cSrcSize - sizeof(size_t);
-        BYTE* op1 = (BYTE*)dst;
-        BYTE* op2 = op1 + (dstSize+3)/4;
-        BYTE* op3 = op2 + (dstSize+3)/4;
-        BYTE* op4 = op3 + (dstSize+3)/4;
-
-        size_t value1 = initValue(ip1);
-        size_t value2 = initValue(ip2);
-        size_t value3 = initValue(ip3);
-        size_t value4 = initValue(ip4);
-        size_t const dtShift = 64 - 11;
-        for (; ;) {
-            uint8_t* const olimit = compute_iters(ilimit, ip1, op4, oend);
-            if (op4 + 20 >= olimit)
-                break;
-            uint16_t x1 = GET(value1);
-            uint16_t x2 = GET(value2);
-            uint16_t x3 = GET(value3);
-            uint16_t x4 = GET(value4);
-            while (op4 < olimit) {
-                USE(op1[0], value1, x1);
-                x1 = GET(value1);
-                USE(op2[0], value2, x2);
-                x2 = GET(value2);
-                USE(op3[0], value3, x3);
-                x3 = GET(value3);
-                USE(op4[0], value4, x4);
-                x4 = GET(value4);
-
-                USE(op1[1], value1, x1);
-                x1 = GET(value1);
-                USE(op2[1], value2, x2);
-                x2 = GET(value2);
-                USE(op3[1], value3, x3);
-                x3 = GET(value3);
-                USE(op4[1], value4, x4);
-                x4 = GET(value4);
-
-                USE(op1[2], value1, x1);
-                x1 = GET(value1);
-                USE(op2[2], value2, x2);
-                x2 = GET(value2);
-                USE(op3[2], value3, x3);
-                x3 = GET(value3);
-                USE(op4[2], value4, x4);
-                x4 = GET(value4);
-
-                USE(op1[3], value1, x1);
-                x1 = GET(value1);
-                USE(op2[3], value2, x2);
-                x2 = GET(value2);
-                USE(op3[3], value3, x3);
-                x3 = GET(value3);
-                USE(op4[3], value4, x4);
-                x4 = GET(value4);
-
-                USE(op1[4], value1, x1);
-                RELOAD(op1, ip1, value1);
-                USE(op2[4], value2, x2);
-                RELOAD(op2, ip2, value2);
-                USE(op3[4], value3, x3);
-                RELOAD(op3, ip3, value3);
-                USE(op4[4], value4, x4);
-                RELOAD(op4, ip4, value4);
-                x1 = GET(value1);
-                x2 = GET(value2);
-                x3 = GET(value3);
-                x4 = GET(value4);
-            }
-
-            if (ip2 < ip1 || ip3 < ip1 || ip4 < ip1) {
-                assert(0);
-                break;
-            }
-        }
-
-
-        /* note : op4 already verified within main loop */
-        assert(ip1 >= ilimit);
-        assert(ip2 >= ilimit);
-        assert(ip3 >= ilimit);
-        assert(ip4 >= ilimit);
-        assert(op4 <= oend);
-
-        /* finish bitStreams one by one */
-        {
-            size_t const segmentSize = (dstSize+3) / 4;
-            BYTE* segmentEnd = (BYTE*)dst + segmentSize;
-            if (op1 > segmentEnd) return ERROR(corruption_detected);
-            assert(ip1 >= iend[0]);
-
-            BIT_DStream_t bit;
-            bit.bitContainer = MEM_readLE64(ip1);
-            bit.bitsConsumed = __builtin_ctzll(value1);
-            bit.start = (const char*)iend[0];
-            bit.limitPtr = bit.start + sizeof(size_t);
-            bit.ptr = (const char*)ip1;
-
-            op1 += HUF_decodeStreamX1(op1, &bit, segmentEnd, dt, dtLog);
-            if (op1 != segmentEnd) return ERROR(corruption_detected);
-            segmentEnd += segmentSize;
-            if (op2 > segmentEnd) return ERROR(corruption_detected);
-            if (ip2 < iend[1] - 8) return ERROR(corruption_detected);
-
-            bit.bitContainer = MEM_readLE64(ip2);
-            bit.bitsConsumed = __builtin_ctzll(value2);
-            bit.start = (const char*)iend[0];
-            bit.limitPtr = bit.start + sizeof(size_t);
-            bit.ptr = (const char*)ip2;
-            op2 += HUF_decodeStreamX1(op2, &bit, segmentEnd, dt, dtLog);
-            if (op2 != segmentEnd) return ERROR(corruption_detected);
-
-            segmentEnd += segmentSize;
-            if (op3 > segmentEnd) return ERROR(corruption_detected);
-            if (ip3 < iend[2] - 8) return ERROR(corruption_detected);
-
-            bit.bitContainer = MEM_readLE64(ip3);
-            bit.bitsConsumed = __builtin_ctzll(value3);
-            bit.start = (const char*)iend[0];
-            bit.limitPtr = bit.start + sizeof(size_t);
-            bit.ptr = (const char*)ip3;
-            op3 += HUF_decodeStreamX1(op3, &bit, segmentEnd, dt, dtLog);
-            if (op3 != segmentEnd) return ERROR(corruption_detected);
-
-            assert(op4 <= oend);
-            if (ip4 < iend[3] - 8) return ERROR(corruption_detected);
-
-            bit.bitContainer = MEM_readLE64(ip4);
-            bit.bitsConsumed = __builtin_ctzll(value4);
-            bit.start = (const char*)iend[0];
-            bit.limitPtr = bit.start + sizeof(size_t);
-            bit.ptr = (const char*)ip4;
-            op4 += HUF_decodeStreamX1(op4, &bit, oend, dt, dtLog);
-            if (op4 != oend) return ERROR(corruption_detected);
-        }
-    }
-
-    /* decoded size */
-    return dstSize;
-}
-#endif
+#endif /* HUF_ENABLE_ASM_X86_64_BMI2 */
 
 typedef size_t (*HUF_decompress_usingDTable_t)(void *dst, size_t dstSize,
                                                const void *cSrc,
@@ -813,21 +656,24 @@ HUF_DGEN(HUF_decompress1X1_usingDTable_internal)
 static size_t HUF_decompress4X1_usingDTable_internal(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable, int bmi2)
 {
-    if (kCheck && bmi2) {
-        HUF_decompress4X1_usingDTable_internal_default(dst, dstSize, cSrc, cSrcSize, DTable);
-        XXH64_hash_t const checksum0 = XXH64(dst, dstSize, 0);
-        HUF_decompress4X1_usingDTable_internal_bmi2_asm(dst, dstSize, cSrc, cSrcSize, DTable);
-        if (XXH64(dst, dstSize, 0) != checksum0) {
-            fprintf(stderr, "block failed");
-            exit(0);
-        }
-    }
+#if DYNAMIC_BMI2
     if (bmi2) {
+# if HUF_ENABLE_ASM_X86_64_BMI2
         return HUF_decompress4X1_usingDTable_internal_bmi2_asm(dst, dstSize, cSrc, cSrcSize, DTable);
+# else
+        return HUF_decompress4X1_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
+# endif
     }
-    return HUF_decompress4X1_usingDTable_internal_default(dst, dstSize, cSrc, cSrcSize, DTable);
-}
+#else
+    (void)bmi2;
+#endif
 
+#if HUF_ENABLE_ASM_X86_64_BMI2 && !DYNAMIC_BMI2
+    return HUF_decompress4X1_usingDTable_internal_bmi2_asm(dst, dstSize, cSrc, cSrcSize, DTable);
+#else
+    return HUF_decompress4X1_usingDTable_internal_default(dst, dstSize, cSrc, cSrcSize, DTable);
+#endif
+}
 
 
 size_t HUF_decompress1X1_usingDTable(
@@ -907,44 +753,26 @@ typedef struct { BYTE symbol; } sortedSymbol_t;
 typedef U32 rankValCol_t[HUF_TABLELOG_MAX + 1];
 typedef rankValCol_t rankVal_t[HUF_TABLELOG_MAX];
 
-static void setSeq(HUF_DEltX2* delt, uint16_t seq) {
-#if kPacked
-    memcpy((uint8_t*)delt + 1, &seq, 2);
-#else
-    memcpy((uint8_t*)delt + offsetof(HUF_DEltX2, sequence), &seq, 2);
-#endif
-}
-
 static U32 HUF_buildDEltX2U32(U32 symbol, U32 nbBits, U32 baseSeq, int level)
 {
+    U32 seq;
     DEBUG_STATIC_ASSERT(offsetof(HUF_DEltX2, sequence) == 0);
     DEBUG_STATIC_ASSERT(offsetof(HUF_DEltX2, nbBits) == 2);
     DEBUG_STATIC_ASSERT(offsetof(HUF_DEltX2, length) == 3);
     DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(U32));
-    U32 seq;
     if (MEM_isLittleEndian()) {
         seq = level == 1 ? symbol : (baseSeq + (symbol << 8));
     } else {
         seq = level == 1 ? (symbol << 8) : ((baseSeq << 8) + symbol);
     }
-    U32 const val = seq + (nbBits << 16) + ((U32)level << 24);
-    return val;
+    return seq + (nbBits << 16) + ((U32)level << 24);
 }
 
 static HUF_DEltX2 HUF_buildDEltX2(U32 symbol, U32 nbBits, U32 baseSeq, int level)
 {
     HUF_DEltX2 DElt;
-    if (1) {
-        U32 const val = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
-        memcpy(&DElt, &val, sizeof(val));
-    } else {
-        if (level == 1)
-            setSeq(&DElt, symbol);
-        else
-            setSeq(&DElt, (U16)(baseSeq + (symbol << 8)));
-        DElt.nbBits = (BYTE)nbBits;
-        DElt.length = level;
-    }
+    U32 const val = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
+    memcpy(&DElt, &val, sizeof(val));
     return DElt;
 }
 
@@ -965,15 +793,12 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
     case 1:
         for (ptr = begin; ptr != end; ++ptr) {
             HUF_DEltX2 const DElt = HUF_buildDEltX2(ptr->symbol, totalBits, baseSeq, level);
-            // assert(weight == ptr->weight);
             DTable[outPos++] = DElt;
-            // DTable[outPos++] = DElt;
         }
         break;
     case 2:
         for (ptr = begin; ptr != end; ++ptr) {
             HUF_DEltX2 const DElt = HUF_buildDEltX2(ptr->symbol, totalBits, baseSeq, level);
-            // assert(weight == ptr->weight);
             DTable[outPos + 0] = DElt;
             DTable[outPos + 1] = DElt;
             outPos += 2;
@@ -982,7 +807,6 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
     case 4:
         for (ptr = begin; ptr != end; ++ptr) {
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, totalBits, baseSeq, level);
-            // assert(weight == ptr->weight);
             memcpy(DTable + outPos + 0, &DEltX2, sizeof(DEltX2));
             memcpy(DTable + outPos + 2, &DEltX2, sizeof(DEltX2));
             outPos += 4;
@@ -991,7 +815,6 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
     case 8:
         for (ptr = begin; ptr != end; ++ptr) {
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, totalBits, baseSeq, level);
-            // assert(weight == ptr->weight);
             memcpy(DTable + outPos + 0, &DEltX2, sizeof(DEltX2));
             memcpy(DTable + outPos + 2, &DEltX2, sizeof(DEltX2));
             memcpy(DTable + outPos + 4, &DEltX2, sizeof(DEltX2));
@@ -1004,7 +827,6 @@ static U32 HUF_fillDTableX2ForWeight(HUF_DEltX2* const DTable, sortedSymbol_t co
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, totalBits, baseSeq, level);
             U32 const endPos = outPos + length;
             int pos;
-            // assert(weight == ptr->weight);
             for (pos = (int)outPos; pos != (int)endPos; pos += 8) {
                 memcpy(DTable + pos + 0, &DEltX2, sizeof(DEltX2));
                 memcpy(DTable + pos + 2, &DEltX2, sizeof(DEltX2));
@@ -1034,20 +856,17 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
         assert(length > 1);
         switch (length) {
         case 2:
-            DEBUGLOG(2, "skip-size-2 = %d", skipSize);
             for (i = 0; i < skipSize; i += 2) {
                 memcpy(DTable + i, &DEltX2, sizeof(DEltX2));
             }
             break;
         case 4:
-            DEBUGLOG(2, "skip-size-4 = %d", skipSize);
             for (i = 0; i < skipSize; i += 4) {
                 memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
                 memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
             }
             break;
         default:
-            DEBUGLOG(2, "skip-size-8 = %d", skipSize);
             for (i = 0; i < skipSize; i += 8) {
                 memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
                 memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
@@ -1080,21 +899,17 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
     int const wEnd = (int)maxWeight + 1;
 
     /* fill DTable */
-    DEBUGLOG(2, "begin");
     for (w = 1; w < wEnd; ++w) {
         int const begin = (int)rankStart[w];
         int const end = (int)rankStart[w+1];
         U32 const nbBits = nbBitsBaseline - w;
-        DEBUGLOG(2, "#weight[%d] = %d", w, end - begin);
         if (targetLog-nbBits >= minBits) {   /* enough room for a second symbol */
             int start = rankVal[w];
             int const length = 1 << (targetLog - nbBits);
             int minWeight = nbBits + scaleLog;
             int s;
-            DEBUGLOG(2, "\tLevel 2");
             if (minWeight < 1) minWeight = 1;
             for (s = begin; s != end; ++s) {
-                // assert(sortedList[s].weight == w);
                 HUF_fillDTableX2Level2(DTable+start, targetLog, nbBits,
                             rankValOrigin[nbBits], minWeight, wEnd,
                             sortedList, rankStart,
@@ -1102,11 +917,9 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
                 start += length;
             }
         } else {
-            DEBUGLOG(2, "\tLevel 1");
             HUF_fillDTableX2ForWeight(DTable, sortedList + begin, sortedList + end, w, nbBitsBaseline, targetLog, /* consumedBits */ 0, rankVal[w], /* baseSeq */ 0, /* level */ 1);
         }
     }
-    DEBUGLOG(2, "end");
 }
 
 typedef struct {
@@ -1146,9 +959,8 @@ size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable,
     ZSTD_memset(wksp->rankStart0, 0, sizeof(wksp->rankStart0));
 
     DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(HUF_DTable));   /* if compiler fails here, assertion is wrong */
-    U32 const kMaxTableLog = 11;
-    if (maxTableLog > kMaxTableLog) maxTableLog = kMaxTableLog;
-    if (maxTableLog < kMaxTableLog) maxTableLog = kMaxTableLog;
+    if (maxTableLog > HUF_DECODER_FAST_TABLELOG) maxTableLog = HUF_DECODER_FAST_TABLELOG;
+    if (maxTableLog < HUF_DECODER_FAST_TABLELOG) return ERROR(tableLog_tooLarge);
     /* ZSTD_memset(weightList, 0, sizeof(weightList)); */  /* is not necessary, even though some analyzer complain ... */
 
     iSize = HUF_readStats_wksp(wksp->weightList, HUF_SYMBOLVALUE_MAX + 1, wksp->rankStats, &nbSymbols, &tableLog, src, srcSize, wksp->calleeWksp, sizeof(wksp->calleeWksp), bmi2);
@@ -1217,12 +1029,7 @@ FORCE_INLINE_TEMPLATE U32
 HUF_decodeSymbolX2(void* op, BIT_DStream_t* DStream, const HUF_DEltX2* dt, const U32 dtLog)
 {
     size_t const val = BIT_lookBitsFast(DStream, dtLog);   /* note : dtLog >= 1 */
-#if kPacked
-    memcpy(op, (uint8_t const*)&dt[val] + 1, 2);
-#else
-    memcpy(op, dt + val, 2);
-    // memcpy(op, (uint8_t const*)&dt[val] + offsetof(HUF_DEltX2, sequence), 2);
-#endif
+    memcpy(op, &dt[val].sequence, 2);
     BIT_skipBits(DStream, dt[val].nbBits);
     return dt[val].length;
 }
@@ -1231,19 +1038,17 @@ FORCE_INLINE_TEMPLATE U32
 HUF_decodeLastSymbolX2(void* op, BIT_DStream_t* DStream, const HUF_DEltX2* dt, const U32 dtLog)
 {
     size_t const val = BIT_lookBitsFast(DStream, dtLog);   /* note : dtLog >= 1 */
-#if kPacked
-    memcpy(op, (uint8_t const*)&dt[val] + 1, 1);
-#else
-    memcpy(op, (uint8_t const*)&dt[val] + offsetof(HUF_DEltX2, sequence), 1);
-#endif
-    if (dt[val].length==1) BIT_skipBits(DStream, dt[val].nbBits);
-    else {
+    memcpy(op, &dt[val].sequence, 1);
+    if (dt[val].length==1) {
+        BIT_skipBits(DStream, dt[val].nbBits);
+    } else {
         if (DStream->bitsConsumed < (sizeof(DStream->bitContainer)*8)) {
             BIT_skipBits(DStream, dt[val].nbBits);
             if (DStream->bitsConsumed > (sizeof(DStream->bitContainer)*8))
                 /* ugly hack; works only because it's the last symbol. Note : can't easily extract nbBits from just this symbol */
                 DStream->bitsConsumed = (sizeof(DStream->bitContainer)*8);
-    }   }
+        }
+    }
     return 1;
 }
 
@@ -1437,11 +1242,13 @@ HUF_decompress4X2_usingDTable_internal_body(
     }
 }
 
+#if DYNAMIC_BMI2
 static TARGET_ATTRIBUTE("bmi2")
 size_t HUF_decompress4X2_usingDTable_internal_bmi2(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable) {
     return HUF_decompress4X2_usingDTable_internal_body(dst, dstSize, cSrc, cSrcSize, DTable);
 }
+#endif
 
 static
 size_t HUF_decompress4X2_usingDTable_internal_default(void* dst, size_t dstSize, void const* cSrc,
@@ -1449,15 +1256,16 @@ size_t HUF_decompress4X2_usingDTable_internal_default(void* dst, size_t dstSize,
     return HUF_decompress4X2_usingDTable_internal_body(dst, dstSize, cSrc, cSrcSize, DTable);
 }
 
+#if HUF_ENABLE_ASM_X86_64_BMI2
+
 void HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(HUF_decompress4X1_AsmArgs* args);
 
-static TARGET_ATTRIBUTE("bmi2") size_t
+static HUF_ASM_X86_64_BMI2_ATTRS size_t
 HUF_decompress4X2_usingDTable_internal_bmi2_asm(
           void* dst,  size_t dstSize,
     const void* cSrc, size_t cSrcSize,
     const HUF_DTable* DTable) {
-    U32 const kDTLog = 11;
-    const HUF_DEltX2* dt = (const HUF_DEltX2*)(void const*)(DTable + 1);
+    void const* dt = DTable + 1;
     U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
 
     const BYTE* const ilimit = (const BYTE*)cSrc + 6 + 8;
@@ -1466,7 +1274,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
     BYTE* const oend = (BYTE*)dst + dstSize;
 
     if (cSrcSize < 10) return ERROR(corruption_detected);   /* strict minimum : jump table + 1 byte per stream */
-    if (cSrcSize < 10 + 64 * 4 || dtLog != kDTLog) return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
+    if (cSrcSize < 10 + 64 * 4 || dtLog != HUF_DECODER_FAST_TABLELOG) return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
 
     {   const BYTE* const istart = (const BYTE*) cSrc;
 
@@ -1497,19 +1305,17 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
         args.op[2] = args.op[1] + (dstSize+3)/4;
         args.op[3] = args.op[2] + (dstSize+3)/4;
 
-        args.bits[0] = initValue(args.ip[0]);
-        args.bits[1] = initValue(args.ip[1]);
-        args.bits[2] = initValue(args.ip[2]);
-        args.bits[3] = initValue(args.ip[3]);
+        args.bits[0] = HUF_initDStream(args.ip[0]);
+        args.bits[1] = HUF_initDStream(args.ip[1]);
+        args.bits[2] = HUF_initDStream(args.ip[2]);
+        args.bits[3] = HUF_initDStream(args.ip[3]);
 
         args.ilimit = ilimit;
         args.oend = oend;
         args.dt = (void const*)dt;
 
-        printArgs(&args);
         DEBUG_STATIC_ASSERT(sizeof(args) == 120);
         HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(&args);
-        printArgs(&args);
 
 
         /* note : op4 already verified within main loop */
@@ -1539,8 +1345,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
                 bit.limitPtr = bit.start + sizeof(size_t);
                 bit.ptr = (const char*)args.ip[i];
                 DEBUGLOG(2, "remaining[%d] = %zu / %zu", i, (size_t)(segmentEnd - args.op[i]), segmentSize);
-                assert(dtLog == kDTLog);
-                args.op[i] += HUF_decodeStreamX2(args.op[i], &bit, segmentEnd, dt, kDTLog);
+                args.op[i] += HUF_decodeStreamX2(args.op[i], &bit, segmentEnd, (HUF_DEltX2 const*)dt, HUF_DECODER_FAST_TABLELOG);
                 if (args.op[i] != segmentEnd) { DEBUGLOG(2, "finish bad"); return ERROR(corruption_detected);}
             }
         }
@@ -1549,23 +1354,28 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
     /* decoded size */
     return dstSize;
 }
+#endif /* HUF_ENABLE_ASM_X86_64_BMI2 */
 
 static size_t HUF_decompress4X2_usingDTable_internal(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable, int bmi2)
 {
-    if (kCheck && bmi2) {
-        HUF_decompress4X2_usingDTable_internal_default(dst, dstSize, cSrc, cSrcSize, DTable);
-        XXH64_hash_t const checksum0 = XXH64(dst, dstSize, 0);
-        HUF_decompress4X2_usingDTable_internal_bmi2_asm(dst, dstSize, cSrc, cSrcSize, DTable);
-        if (XXH64(dst, dstSize, 0) != checksum0) {
-            fprintf(stderr, "block x2 failed");
-            exit(0);
-        }
-    }
+#if DYNAMIC_BMI2
     if (bmi2) {
+# if HUF_ENABLE_ASM_X86_64_BMI2
         return HUF_decompress4X2_usingDTable_internal_bmi2_asm(dst, dstSize, cSrc, cSrcSize, DTable);
+# else
+        return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
+# endif
     }
+#else
+    (void)bmi2;
+#endif
+
+#if HUF_ENABLE_ASM_X86_64_BMI2 && !DYNAMIC_BMI2
+    return HUF_decompress4X2_usingDTable_internal_bmi2_asm(dst, dstSize, cSrc, cSrcSize, DTable);
+#else
     return HUF_decompress4X2_usingDTable_internal_default(dst, dstSize, cSrc, cSrcSize, DTable);
+#endif
 }
 
 HUF_DGEN(HUF_decompress1X2_usingDTable_internal)
@@ -1677,25 +1487,25 @@ size_t HUF_decompress4X_usingDTable(void* dst, size_t maxDstSize,
 
 #if !defined(HUF_FORCE_DECOMPRESS_X1) && !defined(HUF_FORCE_DECOMPRESS_X2)
 typedef struct { U32 tableTime; U32 decode256Time; } algo_time_t;
-static const algo_time_t algoTime[16 /* Quantization */][3 /* single, double, quad */] =
+static const algo_time_t algoTime[16 /* Quantization */][2 /* single, double */] =
 {
     /* single, double, quad */
-    {{0,0}, {1,1}, {2,2}},  /* Q==0 : impossible */
-    {{0,0}, {1,1}, {2,2}},  /* Q==1 : impossible */
-    {{ 150,216}, { 381,119}, {2151, 38}},   /* Q == 2 : 12-18% */
-    {{ 170,205}, { 514,112}, {2238, 41}},   /* Q == 3 : 18-25% */
-    {{ 177,199}, { 539,110}, {2238, 47}},   /* Q == 4 : 25-32% */
-    {{ 197,194}, { 644,107}, {2436, 53}},   /* Q == 5 : 32-38% */
-    {{ 221,192}, { 735,107}, {2464, 61}},   /* Q == 6 : 38-44% */
-    {{ 256,189}, { 881,106}, {2622, 68}},   /* Q == 7 : 44-50% */
-    {{ 359,188}, {1167,109}, {2730, 75}},   /* Q == 8 : 50-56% */
-    {{ 582,187}, {1570,114}, {3359, 77}},   /* Q == 9 : 56-62% */
-    {{ 688,187}, {1712,122}, {4006, 84}},   /* Q ==10 : 62-69% */
-    {{ 825,186}, {1965,136}, {4785, 88}},   /* Q ==11 : 69-75% */
-    {{ 976,185}, {2131,150}, {5155, 84}},   /* Q ==12 : 75-81% */
-    {{1180,186}, {2070,175}, {5260,106}},   /* Q ==13 : 81-87% */
-    {{1377,185}, {1731,202}, {4174,124}},   /* Q ==14 : 87-93% */
-    {{1412,185}, {1695,202}, {1936,146}},   /* Q ==15 : 93-99% */
+    {{0,0}, {1,1}},  /* Q==0 : impossible */
+    {{0,0}, {1,1}},  /* Q==1 : impossible */
+    {{ 150,216}, { 381,119}},   /* Q == 2 : 12-18% */
+    {{ 170,205}, { 514,112}},   /* Q == 3 : 18-25% */
+    {{ 177,199}, { 539,110}},   /* Q == 4 : 25-32% */
+    {{ 197,194}, { 644,107}},   /* Q == 5 : 32-38% */
+    {{ 221,192}, { 735,107}},   /* Q == 6 : 38-44% */
+    {{ 256,189}, { 881,106}},   /* Q == 7 : 44-50% */
+    {{ 359,188}, {1167,109}},   /* Q == 8 : 50-56% */
+    {{ 582,187}, {1570,114}},   /* Q == 9 : 56-62% */
+    {{ 688,187}, {1712,122}},   /* Q ==10 : 62-69% */
+    {{ 825,186}, {1965,136}},   /* Q ==11 : 69-75% */
+    {{ 976,185}, {2131,150}},   /* Q ==12 : 75-81% */
+    {{1180,186}, {2070,175}},   /* Q ==13 : 81-87% */
+    {{1377,185}, {1731,202}},   /* Q ==14 : 87-93% */
+    {{1412,185}, {1695,202}},   /* Q ==15 : 93-99% */
 };
 #endif
 
@@ -1706,8 +1516,6 @@ static const algo_time_t algoTime[16 /* Quantization */][3 /* single, double, qu
  *  Assumption : 0 < dstSize <= 128 KB */
 U32 HUF_selectDecoder (size_t dstSize, size_t cSrcSize)
 {
-    // return 0;
-    // return 1;
     assert(dstSize > 0);
     assert(dstSize <= 128*1024);
 #if defined(HUF_FORCE_DECOMPRESS_X1)
