@@ -2,6 +2,11 @@
 .global HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop
 .text
 
+# Sets up register mappings for clarity.
+# op[], bits[], dtable,
+# Each of op[], ip[], bits[], dtable, and olimit
+# gets its own register.
+# %rax is a scratch register.
 
 #define op0	rsi
 #define op1	rbx
@@ -13,11 +18,6 @@
 #define ip2	r10
 #define ip3	r11
 
-#define ipd0	r8d
-#define ipd1	r9d
-#define ipd2	r10d
-#define ipd3	r11d
-
 #define bits0	rbp
 #define bits1	rdx
 #define bits2	r12
@@ -25,9 +25,32 @@
 #define dtable	r14
 #define olimit	r15
 
-#define kUseStack 1
+# idx[] aliases olimit & ip[1-3]
+# ip[1-3] are saved every iteration.
+# olimit is only used in compute_olimit.
+
+#define var0	r15
+#define var1	r9
+#define var2	r10
+#define var3	r11
+
+#define vard0	r15d
+#define vard1	r9d
+#define vard2	r10d
+#define vard3	r11d
+
+# Helper macro: __VA_ARGS__ if idx != 4.
+#define IF_NOT_4_0(...) __VA_ARGS__
+#define IF_NOT_4_1(...) __VA_ARGS__
+#define IF_NOT_4_2(...) __VA_ARGS__
+#define IF_NOT_4_3(...) __VA_ARGS__
+#define IF_NOT_4_4(...)
+#define IF_NOT_4_(idx, ...) IF_NOT_4_##idx(__VA_ARGS__)
+#define IF_NOT_4(idx, ...) IF_NOT_4_(idx, __VA_ARGS__)
 
 HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
+	# Save all callee saved registers.
+	# Commented out registers are caller saved.
 	push %rax
 	push %rbx
 	push %rcx
@@ -44,6 +67,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	push %r14
 	push %r15
 
+	# Read HUF_DecompressAsmArgs* args from %rdi
 	movq %rdi, %rax
 	movq  0(%rax), %ip0
 	movq  8(%rax), %ip1
@@ -61,6 +85,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	push %rax      # argument
 	push 104(%rax) # ilimit
 	push 112(%rax) # oend
+	push %olimit   # olimit space
 
 .L_4X1_compute_olimit:
 	# Computes how many iterations we can do savely
@@ -70,7 +95,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	movq %rbx, -8(%rsp)
 	movq %rdx, -16(%rsp)
 
-	movq 0(%rsp), %rax # rax = oend
+	movq 8(%rsp), %rax # rax = oend
 	subq %op3,    %rax # rax = oend - op3
 
 	# r15 = (oend - op3) / 5
@@ -80,7 +105,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	shrq $2, %r15
 
 	movq %ip0,    %rax # rax = ip0
-	movq 8(%rsp), %rdx # rdx = ilimit
+	movq 16(%rsp), %rdx # rdx = ilimit
 	subq %rdx,    %rax # rax = ip0 - ilimit
 	movq %rax,    %rbx # rbx = ip0 - ilimit
 
@@ -123,41 +148,19 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	cmpq %ip2, %ip3
 	jb .L_4X1_exit
 
-	.p2align 6
-
-
-#if kUseStack
-
-#define IF_NOT_4_0(...) __VA_ARGS__
-#define IF_NOT_4_1(...) __VA_ARGS__
-#define IF_NOT_4_2(...) __VA_ARGS__
-#define IF_NOT_4_3(...) __VA_ARGS__
-#define IF_NOT_4_4(...)
-#define IF_NOT_4_(idx, ...) IF_NOT_4_##idx(__VA_ARGS__)
-#define IF_NOT_4(idx, ...) IF_NOT_4_(idx, __VA_ARGS__)
-
 #define LOAD(n) \
-	movq $53, %ip##n; \
-	shrxq %ip##n, %bits##n, %ip##n; \
-	movzwl (%dtable,%ip##n,2),%ipd##n; \
+	movq $53, %var##n; \
+	shrxq %var##n, %bits##n, %var##n; \
+	movzwl (%dtable,%var##n,2),%vard##n; \
 
 #define USE(n, idx) \
-	movq %ip##n, %rax; \
-	shlxq %ip##n, %bits##n, %bits##n; \
+	movq %var##n, %rax; \
+	shlxq %var##n, %bits##n, %bits##n; \
 	movb %ah, idx(%op##n); \
 
 #define DECODE(n, idx) \
 	USE(n, idx) \
 	IF_NOT_4(idx, LOAD(n))
-
-#else
-#define DECODE(n, idx) \
-	movq %bits##n, %rax;            \
-	shrq $53, %rax;                 \
-	movzwl (%dtable,%rax,2),%eax;   \
-	shlxq %rax, %bits##n, %bits##n; \
-	movb %ah, idx(%op##n)
-#endif
 
 #define RELOAD(n)                \
 	bsfq %bits##n, %bits##n; \
@@ -170,9 +173,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	orq $1, %bits##n;        \
 	shlx %rax, %bits##n, %bits##n;
 
-
-#if kUseStack
-	movq %ip0, -8(%rsp)
+	movq %olimit, 0(%rsp)
 	movq %ip1, -16(%rsp)
 	movq %ip2, -24(%rsp)
 	movq %ip3, -32(%rsp)
@@ -180,8 +181,8 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	LOAD(1)
 	LOAD(2)
 	LOAD(3)
-#endif
 
+	.p2align 6
 .L_4X1_loop_body:
 # LLVM-MCA-BEGIN decode-4X1
 
@@ -210,14 +211,11 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	DECODE(2, 4)
 	DECODE(3, 4)
 
-#if kUseStack
-	movq -8(%rsp),  %ip0
 	movq -16(%rsp), %ip1
 	movq -24(%rsp), %ip2
 	movq -32(%rsp), %ip3
 
 	RELOAD(0)
-	movq %ip0, -8(%rsp)
 	LOAD(0)
 
 	RELOAD(1)
@@ -231,31 +229,24 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	RELOAD(3)
 	movq %ip3, -32(%rsp)
 	LOAD(3)
-#else
-	RELOAD(0)
-	RELOAD(1)
-	RELOAD(2)
-	RELOAD(3)
 
-#endif
-
+#undef LOAD
+#undef USE
 #undef DECODE
 #undef RELOAD
 
-	cmp %op3, %olimit
+	cmp %op3, 0(%rsp)
 	ja .L_4X1_loop_body
 
-#if kUseStack
-	movq -8(%rsp),  %ip0
 	movq -16(%rsp), %ip1
 	movq -24(%rsp), %ip2
 	movq -32(%rsp), %ip3
-#endif
 
 	jmp .L_4X1_compute_olimit
 # LLVM-MCA-END
 .L_4X1_exit:
 	# Restore stack (oend & olimit)
+	pop %rax # olimit
 	pop %rax # oend
 	pop %rax # ilimit
 	pop %rax # arg
