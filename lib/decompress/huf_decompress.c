@@ -167,8 +167,12 @@ static U32 HUF_rescaleStats(BYTE* huffWeight, U32* rankVal, U32 nbSymbols, U32 t
          * All weights except 0 get moved to weight + scale.
          * Weights [1, scale] are empty.
          */
-        ZSTD_memmove(rankVal + scale, rankVal, (targetTableLog - scale) * sizeof(rankVal[0]));
-        ZSTD_memset(rankVal + 1, 0, scale * sizeof(rankVal[0]));
+        for (s = targetTableLog; s > scale; --s) {
+            rankVal[s] = rankVal[s - scale];
+        }
+        for (s = scale; s > 0; --s) {
+            rankVal[s] = 0;
+        }
     }
     return targetTableLog;
 }
@@ -902,22 +906,30 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
      * is too large.
      */
     if (minWeight>1) {
+        U32 const length = 1u << (targetLog - consumedBits);
         U64 const DEltX2 = HUF_buildDEltX2U64(baseSeq, consumedBits, /* baseSeq */ 0, /* level */ 1);
         int const skipSize = rankVal[minWeight];
-        assert(skipSize > 1);
-        if (LIKELY(skipSize >= 8)) {
-            int i;
-            assert((skipSize & 7) == 0);
-            for (i = 0; i < skipSize; i += 8) {
-                memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
-                memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
-                memcpy(DTable + i + 4, &DEltX2, sizeof(DEltX2));
-                memcpy(DTable + i + 6, &DEltX2, sizeof(DEltX2));
-            }
-        } else {
-            int i;
-            for (i = 0; i < skipSize; ++i) {
-                memcpy(DTable + i, &DEltX2, sizeof(DEltX2));
+        assert(length > 1);
+        assert((U32)skipSize < length);
+        switch (length) {
+        case 2:
+            assert(skipSize == 1);
+            memcpy(DTable, &DEltX2, sizeof(DEltX2));
+            break;
+        case 4:
+            assert(skipSize <= 4);
+            memcpy(DTable + 0, &DEltX2, sizeof(DEltX2));
+            memcpy(DTable + 2, &DEltX2, sizeof(DEltX2));
+            break;
+        default:
+            {
+                int i;
+                for (i = 0; i < skipSize; i += 8) {
+                    memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
+                    memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
+                    memcpy(DTable + i + 4, &DEltX2, sizeof(DEltX2));
+                    memcpy(DTable + i + 6, &DEltX2, sizeof(DEltX2));
+                }
             }
         }
     }
@@ -1023,7 +1035,7 @@ size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable,
 
     DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(HUF_DTable));   /* if compiler fails here, assertion is wrong */
     if (maxTableLog > HUF_DECODER_FAST_TABLELOG) maxTableLog = HUF_DECODER_FAST_TABLELOG;
-    if (maxTableLog < HUF_DECODER_FAST_TABLELOG) return ERROR(tableLog_tooLarge);
+    RETURN_ERROR_IF(maxTableLog < HUF_DECODER_FAST_TABLELOG, tableLog_tooLarge, "maxTableLog too small");
     /* ZSTD_memset(weightList, 0, sizeof(weightList)); */  /* is not necessary, even though some analyzer complain ... */
 
     iSize = HUF_readStats_wksp(wksp->weightList, HUF_SYMBOLVALUE_MAX + 1, wksp->rankStats, &nbSymbols, &tableLog, src, srcSize, wksp->calleeWksp, sizeof(wksp->calleeWksp), bmi2);

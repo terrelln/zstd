@@ -3,9 +3,8 @@
 .text
 
 # Sets up register mappings for clarity.
-# op[], bits[], dtable,
-# Each of op[], ip[], bits[], dtable, and olimit
-# gets its own register.
+# op[], bits[], dtable & ip[0] each get their own register.
+# ip[1,2,3] & olimit alias var[].
 # %rax is a scratch register.
 
 #define op0	rsi
@@ -25,7 +24,7 @@
 #define dtable	r14
 #define olimit	r15
 
-# idx[] aliases olimit & ip[1-3]
+# var[] aliases olimit & ip[1-3]
 # ip[1-3] are saved every iteration.
 # olimit is only used in compute_olimit.
 
@@ -39,7 +38,7 @@
 #define vard2	r10d
 #define vard3	r11d
 
-# Helper macro: __VA_ARGS__ if idx != 4.
+# Helper macro: args if idx != 4.
 #define IF_NOT_4_0(...) __VA_ARGS__
 #define IF_NOT_4_1(...) __VA_ARGS__
 #define IF_NOT_4_2(...) __VA_ARGS__
@@ -148,73 +147,88 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	cmpq %ip2, %ip3
 	jb .L_4X1_exit
 
-#define LOAD(n) \
-	movq $53, %var##n; \
-	shrxq %var##n, %bits##n, %var##n; \
+# Reads top 11 bits from bits[n]
+# Loads dt[bits[n]] into var[n]
+#define LOAD(n)                              \
+	movq $53, %var##n;                   \
+	shrxq %var##n, %bits##n, %var##n;    \
 	movzwl (%dtable,%var##n,2),%vard##n; \
 
-#define USE(n, idx) \
-	movq %var##n, %rax; \
+# var[n] must contain the DTable entry computed with LOAD(n)
+# Moves var[n] to %rax
+# bits[n] <<= var[n] & 63
+# op[n][idx] = %rax >> 8
+# %ah is a way to access bits [8, 16) of %rax
+#define USE(n, idx)                        \
+	movq %var##n, %rax;                \
 	shlxq %var##n, %bits##n, %bits##n; \
-	movb %ah, idx(%op##n); \
+	movb %ah, idx(%op##n);             \
 
-#define DECODE(n, idx) \
-	USE(n, idx) \
+# Assumes LOAD has been called.
+# Calls USE then LOAD if n < 4
+#define DECODE(n, idx)         \
+	USE(n, idx)            \
 	IF_NOT_4(idx, LOAD(n))
 
-#define RELOAD(n)                \
-	bsfq %bits##n, %bits##n; \
-	movq %bits##n, %rax;     \
-	andq $7, %rax;           \
-	shrq $3, %bits##n;       \
-	leaq 5(%op##n), %op##n;  \
-	subq %bits##n, %ip##n;   \
-	movq (%ip##n), %bits##n; \
-	orq $1, %bits##n;        \
+# // ctz & nbBytes is stored in bits[n]
+# // nbBits is stored in %rax
+# ctz  = CTZ[bits[n]]
+# nbBits  = ctz & 7
+# nbBytes = ctz >> 3
+# op[n]  += 5
+# ip[n]  -= nbBytes
+# // Note: x86-64 is little-endian ==> no bswap
+# bits[n] = MEM_readST(ip[n]) | 1
+# bits[n] <<= nbBits
+#define RELOAD(n)                      \
+	bsfq %bits##n, %bits##n;       \
+	movq %bits##n, %rax;           \
+	andq $7, %rax;                 \
+	shrq $3, %bits##n;             \
+	leaq 5(%op##n), %op##n;        \
+	subq %bits##n, %ip##n;         \
+	movq (%ip##n), %bits##n;       \
+	orq $1, %bits##n;              \
 	shlx %rax, %bits##n, %bits##n;
 
+# Calls DECODE for each of the 4 streams
+#define DECODE4(idx)    \
+	DECODE(0, idx); \
+	DECODE(1, idx); \
+	DECODE(2, idx); \
+	DECODE(3, idx); \
+
+	# Store clobbered variables on the stack
 	movq %olimit, 0(%rsp)
 	movq %ip1, -16(%rsp)
 	movq %ip2, -24(%rsp)
 	movq %ip3, -32(%rsp)
+
+	# Call LOAD for each stream
 	LOAD(0)
 	LOAD(1)
 	LOAD(2)
 	LOAD(3)
 
 	.p2align 6
+
 .L_4X1_loop_body:
-# LLVM-MCA-BEGIN decode-4X1
+	# Decode 5 symbols in each of the 4 streams (20 total)
+	# Must have called LOAD for each stream
+	DECODE4(0)
+	DECODE4(1)
+	DECODE4(2)
+	DECODE4(3)
+	DECODE4(4)
 
-	DECODE(0, 0)
-	DECODE(1, 0)
-	DECODE(2, 0)
-	DECODE(3, 0)
-
-	DECODE(0, 1)
-	DECODE(1, 1)
-	DECODE(2, 1)
-	DECODE(3, 1)
-
-	DECODE(0, 2)
-	DECODE(1, 2)
-	DECODE(2, 2)
-	DECODE(3, 2)
-
-	DECODE(0, 3)
-	DECODE(1, 3)
-	DECODE(2, 3)
-	DECODE(3, 3)
-
-	DECODE(0, 4)
-	DECODE(1, 4)
-	DECODE(2, 4)
-	DECODE(3, 4)
-
+	# Load ip[1,2,3] from stack (var[] aliases them)
+	# ip[] is needed for RELOAD
+	# Each will be stored back to the stack after RELOAD
 	movq -16(%rsp), %ip1
 	movq -24(%rsp), %ip2
 	movq -32(%rsp), %ip3
 
+	# Reload each stream & fetch the first table entry
 	RELOAD(0)
 	LOAD(0)
 
@@ -230,19 +244,22 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	movq %ip3, -32(%rsp)
 	LOAD(3)
 
-#undef LOAD
-#undef USE
-#undef DECODE
-#undef RELOAD
-
+	# If op3 < olimit: continue the loop
 	cmp %op3, 0(%rsp)
 	ja .L_4X1_loop_body
 
+	# Reload ip[1,2,3] from stack
 	movq -16(%rsp), %ip1
 	movq -24(%rsp), %ip2
 	movq -32(%rsp), %ip3
 
+	# Re-compute olimit
 	jmp .L_4X1_compute_olimit
+
+#undef LOAD
+#undef USE
+#undef DECODE
+#undef RELOAD
 # LLVM-MCA-END
 .L_4X1_exit:
 	# Restore stack (oend & olimit)
