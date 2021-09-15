@@ -812,7 +812,7 @@ static HUF_DEltX2 HUF_buildDEltX2(U32 symbol, U32 nbBits, U32 baseSeq, int level
 {
     HUF_DEltX2 DElt;
     U32 const val = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
-    memcpy(&DElt, &val, sizeof(val));
+    ZSTD_memcpy(&DElt, &val, sizeof(val));
     return DElt;
 }
 
@@ -864,18 +864,18 @@ static void HUF_fillDTableX2ForWeight(
     case 4:
         for (ptr = begin; ptr != end; ++ptr) {
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, nbBits, baseSeq, level);
-            memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
-            memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
             DTableRank += 4;
         }
         break;
     case 8:
         for (ptr = begin; ptr != end; ++ptr) {
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, nbBits, baseSeq, level);
-            memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
-            memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
-            memcpy(DTableRank + 4, &DEltX2, sizeof(DEltX2));
-            memcpy(DTableRank + 6, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTableRank + 4, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTableRank + 6, &DEltX2, sizeof(DEltX2));
             DTableRank += 8;
         }
         break;
@@ -884,10 +884,10 @@ static void HUF_fillDTableX2ForWeight(
             U64 const DEltX2 = HUF_buildDEltX2U64(ptr->symbol, nbBits, baseSeq, level);
             HUF_DEltX2* const DTableRankEnd = DTableRank + length;
             for (; DTableRank != DTableRankEnd; DTableRank += 8) {
-                memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
-                memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
-                memcpy(DTableRank + 4, &DEltX2, sizeof(DEltX2));
-                memcpy(DTableRank + 6, &DEltX2, sizeof(DEltX2));
+                ZSTD_memcpy(DTableRank + 0, &DEltX2, sizeof(DEltX2));
+                ZSTD_memcpy(DTableRank + 2, &DEltX2, sizeof(DEltX2));
+                ZSTD_memcpy(DTableRank + 4, &DEltX2, sizeof(DEltX2));
+                ZSTD_memcpy(DTableRank + 6, &DEltX2, sizeof(DEltX2));
             }
         }
         break;
@@ -914,21 +914,21 @@ static void HUF_fillDTableX2Level2(HUF_DEltX2* DTable, U32 targetLog, const U32 
         switch (length) {
         case 2:
             assert(skipSize == 1);
-            memcpy(DTable, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTable, &DEltX2, sizeof(DEltX2));
             break;
         case 4:
             assert(skipSize <= 4);
-            memcpy(DTable + 0, &DEltX2, sizeof(DEltX2));
-            memcpy(DTable + 2, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTable + 0, &DEltX2, sizeof(DEltX2));
+            ZSTD_memcpy(DTable + 2, &DEltX2, sizeof(DEltX2));
             break;
         default:
             {
                 int i;
                 for (i = 0; i < skipSize; i += 8) {
-                    memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
-                    memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
-                    memcpy(DTable + i + 4, &DEltX2, sizeof(DEltX2));
-                    memcpy(DTable + i + 6, &DEltX2, sizeof(DEltX2));
+                    ZSTD_memcpy(DTable + i + 0, &DEltX2, sizeof(DEltX2));
+                    ZSTD_memcpy(DTable + i + 2, &DEltX2, sizeof(DEltX2));
+                    ZSTD_memcpy(DTable + i + 4, &DEltX2, sizeof(DEltX2));
+                    ZSTD_memcpy(DTable + i + 6, &DEltX2, sizeof(DEltX2));
                 }
             }
         }
@@ -1103,7 +1103,7 @@ FORCE_INLINE_TEMPLATE U32
 HUF_decodeSymbolX2(void* op, BIT_DStream_t* DStream, const HUF_DEltX2* dt, const U32 dtLog)
 {
     size_t const val = BIT_lookBitsFast(DStream, dtLog);   /* note : dtLog >= 1 */
-    memcpy(op, &dt[val].sequence, 2);
+    ZSTD_memcpy(op, &dt[val].sequence, 2);
     BIT_skipBits(DStream, dt[val].nbBits);
     return dt[val].length;
 }
@@ -1112,7 +1112,7 @@ FORCE_INLINE_TEMPLATE U32
 HUF_decodeLastSymbolX2(void* op, BIT_DStream_t* DStream, const HUF_DEltX2* dt, const U32 dtLog)
 {
     size_t const val = BIT_lookBitsFast(DStream, dtLog);   /* note : dtLog >= 1 */
-    memcpy(op, &dt[val].sequence, 1);
+    ZSTD_memcpy(op, &dt[val].sequence, 1);
     if (dt[val].length==1) {
         BIT_skipBits(DStream, dt[val].nbBits);
     } else {

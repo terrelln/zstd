@@ -19,35 +19,30 @@
 # zstreamtest32: Same as zstreamtest, but forced to compile in 32-bits mode
 # ##########################################################################
 
-ZSTDDIR = ../lib
+LIBZSTD = ../lib
+
+ZSTD_LEGACY_SUPPORT ?= 0
+
+DEBUGLEVEL ?= 2
+export DEBUGLEVEL  # transmit value to sub-makefiles
+
+include $(LIBZSTD)/libzstd.mk
+
+ZSTDDIR = $(LIBZSTD)
 PRGDIR  = ../programs
 PYTHON ?= python3
 TESTARTEFACT := versionsTest
 
-DEBUGLEVEL ?= 2
-export DEBUGLEVEL  # transmit value to sub-makefiles
-DEBUGFLAGS  = -g -DDEBUGLEVEL=$(DEBUGLEVEL)
+DEBUGFLAGS += -g -Wno-c++-compat
 CPPFLAGS   += -I$(ZSTDDIR) -I$(ZSTDDIR)/common -I$(ZSTDDIR)/compress \
               -I$(ZSTDDIR)/dictBuilder -I$(ZSTDDIR)/deprecated -I$(PRGDIR) \
 			  -DZSTD_WINDOW_OVERFLOW_CORRECT_FREQUENTLY=1
-ifeq ($(OS),Windows_NT)   # MinGW assumed
-CPPFLAGS   += -D__USE_MINGW_ANSI_STDIO   # compatibility with %zu formatting
-endif
-CFLAGS     ?= -O3
-CFLAGS     += -Wall -Wextra -Wcast-qual -Wcast-align -Wshadow                 \
-              -Wstrict-aliasing=1 -Wswitch-enum -Wdeclaration-after-statement \
-              -Wstrict-prototypes -Wundef                                     \
-              -Wvla -Wformat=2 -Winit-self -Wfloat-equal -Wwrite-strings      \
-              -Wredundant-decls -Wmissing-prototypes -Wno-deprecated-declarations
-CFLAGS     += $(DEBUGFLAGS)
-CPPFLAGS   += $(MOREFLAGS)
 
-
-ZSTDCOMMON_FILES := $(ZSTDDIR)/common/*.c
-ZSTDCOMP_FILES   := $(ZSTDDIR)/compress/*.c
-ZSTDDECOMP_FILES := $(ZSTDDIR)/decompress/*.c $(ZSTDDIR)/decompress/*.S
+ZSTDCOMMON_FILES := $(sort $(ZSTD_COMMON_FILES))
+ZSTDCOMP_FILES   := $(sort $(ZSTD_COMPRESS_FILES))
+ZSTDDECOMP_FILES := $(sort $(ZSTD_DECOMPRESS_FILES))
 ZSTD_FILES  := $(ZSTDDECOMP_FILES) $(ZSTDCOMMON_FILES) $(ZSTDCOMP_FILES)
-ZDICT_FILES := $(ZSTDDIR)/dictBuilder/*.c
+ZDICT_FILES := $(sort $(ZSTD_DICTBUILDER_FILES))
 
 ZSTD_F1 := $(wildcard $(ZSTD_FILES))
 ZSTD_OBJ1 := $(subst $(ZSTDDIR)/common/,zstdm_,$(ZSTD_F1))
@@ -209,7 +204,7 @@ bigdict: $(ZSTDMT_OBJECTS) $(PRGDIR)/datagen.c bigdict.c
 
 invalidDictionaries : $(ZSTD_OBJECTS) invalidDictionaries.c
 
-legacy : CPPFLAGS += -I$(ZSTDDIR)/legacy -DZSTD_LEGACY_SUPPORT=4
+legacy : CPPFLAGS += -I$(ZSTDDIR)/legacy -UZSTD_LEGACY_SUPPORT -DZSTD_LEGACY_SUPPORT=4
 legacy : $(ZSTD_FILES) $(wildcard $(ZSTDDIR)/legacy/*.c) legacy.c
 
 decodecorpus : LDLIBS += -lm
