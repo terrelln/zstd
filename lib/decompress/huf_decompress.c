@@ -45,7 +45,7 @@
 /* Assembly code does not work with memory sanitizer because it needs
  * to instrument 100% of code to work.
  */
-#if defined(ZSTD_MEMORY_SANITIZER) && !defined(HUF_DISABLE_ASM)
+#if ZSTD_MEMORY_SANITIZER && !defined(HUF_DISABLE_ASM)
 # define HUF_DISABLE_ASM 1
 #endif
 
