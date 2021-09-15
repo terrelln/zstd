@@ -43,7 +43,7 @@
 #endif
 
 /* HUF_DISABLE_ASM: Disables all ASM implementations.  */
-#if !defined(HUF_DISABLE_ASM) && (DYNAMIC_BMI2 || defined(__BMI2__))
+#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X86)) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
 #else
 # define HUF_ENABLE_ASM_X86_64_BMI2 0
@@ -626,7 +626,7 @@ static size_t HUF_initRemainingDStream(BIT_DStream_t* bit, HUF_DecompressAsmArgs
     return 0;
 }
 
-void HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
+WIN_CDECL void HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
 
 static HUF_ASM_X86_64_BMI2_ATTRS
 size_t
@@ -1332,7 +1332,7 @@ size_t HUF_decompress4X2_usingDTable_internal_default(void* dst, size_t dstSize,
 
 #if HUF_ENABLE_ASM_X86_64_BMI2
 
-void HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
+WIN_CDECL void HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
 
 static HUF_ASM_X86_64_BMI2_ATTRS size_t
 HUF_decompress4X2_usingDTable_internal_bmi2_asm(
