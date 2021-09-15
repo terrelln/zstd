@@ -550,7 +550,7 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
     void const* dt = DTable + 1;
     U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
 
-    const BYTE* const ilimit = (const BYTE*)src + 8;
+    const BYTE* const ilimit = (const BYTE*)src + 6 + 8;
 
     BYTE* const oend = (BYTE*)dst + dstSize;
 
@@ -579,8 +579,10 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
 
         /* HUF_initDStream() requires this, and this small of an input
          * won't benefit from the ASM loop anyways.
+         * length1 must be >= 16 so that ip[0] >= ilimit before the loop
+         * starts.
          */
-        if (length1 < 8 || length2 < 8 || length3 < 8 || length4 < 8)
+        if (length1 < 16 || length2 < 8 || length3 < 8 || length4 < 8)
             return 1;
         if (length4 > srcSize) return ERROR(corruption_detected);   /* overflow */
     }
@@ -653,7 +655,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
     const HUF_DTable* DTable)
 {
     void const* dt = DTable + 1;
-    const BYTE* const ilimit = (const BYTE*)cSrc + 8;
+    const BYTE* const iend = (const BYTE*)cSrc + 6;
     BYTE* const oend = (BYTE*)dst + dstSize;
     HUF_DecompressAsmArgs args;
     {
@@ -663,17 +665,18 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
             return HUF_decompress4X1_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
     }
 
+    assert(args.ip[0] >= args.ilimit);
     HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(&args);
 
     /* Our loop guarantees that ip[] >= ilimit and that we haven't
-     * overwritten any op[].
-     */
-    assert(args.ip[0] >= ilimit);
-    assert(args.ip[1] >= ilimit);
-    assert(args.ip[2] >= ilimit);
-    assert(args.ip[3] >= ilimit);
+    * overwritten any op[].
+    */
+    assert(args.ip[0] >= iend);
+    assert(args.ip[1] >= iend);
+    assert(args.ip[2] >= iend);
+    assert(args.ip[3] >= iend);
     assert(args.op[3] <= oend);
-    (void)ilimit;
+    (void)iend;
 
     /* finish bit streams one by one. */
     {
@@ -1353,7 +1356,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
     const void* cSrc, size_t cSrcSize,
     const HUF_DTable* DTable) {
     void const* dt = DTable + 1;
-    const BYTE* const ilimit = (const BYTE*)cSrc + 8;
+    const BYTE* const iend = (const BYTE*)cSrc + 6;
     BYTE* const oend = (BYTE*)dst + dstSize;
     HUF_DecompressAsmArgs args;
     {
@@ -1363,15 +1366,16 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
             return HUF_decompress4X2_usingDTable_internal_bmi2(dst, dstSize, cSrc, cSrcSize, DTable);
     }
 
+    assert(args.ip[0] >= args.ilimit);
     HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(&args);
 
     /* note : op4 already verified within main loop */
-    assert(args.ip[0] >= ilimit);
-    assert(args.ip[1] >= ilimit);
-    assert(args.ip[2] >= ilimit);
-    assert(args.ip[3] >= ilimit);
+    assert(args.ip[0] >= iend);
+    assert(args.ip[1] >= iend);
+    assert(args.ip[2] >= iend);
+    assert(args.ip[3] >= iend);
     assert(args.op[3] <= oend);
-    (void)ilimit;
+    (void)iend;
 
     /* finish bitStreams one by one */
     {
