@@ -42,6 +42,13 @@
 #error "Cannot force the use of the X1 and X2 decoders at the same time!"
 #endif
 
+/* Assembly code does not work with memory sanitizer because it needs
+ * to instrument 100% of code to work.
+ */
+#if defined(ZSTD_MEMORY_SANITIZER) && !defined(HUF_DISABLE_ASM)
+# define HUF_DISABLE_ASM 1
+#endif
+
 /* HUF_DISABLE_ASM: Disables all ASM implementations.  */
 #if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X86)) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
@@ -54,6 +61,13 @@
 #else
 # define HUF_ASM_X86_64_BMI2_ATTRS
 #endif
+
+#ifdef __cplusplus
+# define HUF_EXTERN_C extern "C"
+#else
+# define HUF_EXTERN_C
+#endif
+#define HUF_ASM_DECL HUF_EXTERN_C WIN_CDECL
 
 /* **************************************************************
 *  Error Management
@@ -545,7 +559,7 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
      * If table log is not correct at this point, fallback to the old decoder.
      * On small inputs we don't have enough data to trigger the fast loop, so use the old decoder.
      */
-    if (srcSize < 10 + 64 * 4 || dtLog != HUF_DECODER_FAST_TABLELOG)
+    if (dtLog != HUF_DECODER_FAST_TABLELOG)
         return 1;
 
     /* Read the jump table. */
@@ -560,11 +574,11 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
         args->iend[2] = args->iend[1] + length2;
         args->iend[3] = args->iend[2] + length3;
 
-        /* Already validated - HUF_initDStream() requires this. */
-        assert(length1 >= 8);
-        assert(length2 >= 8);
-        assert(length3 >= 8);
-        assert(length4 >= 8);
+        /* HUF_initDStream() requires this, and this small of an input
+         * won't benefit from the ASM loop anyways.
+         */
+        if (length1 < 8 || length2 < 8 || length3 < 8 || length4 < 8)
+            return 1;
         if (length4 > srcSize) return ERROR(corruption_detected);   /* overflow */
     }
     /* ip[] contains the position that is currently loaded into bits[]. */
@@ -626,7 +640,7 @@ static size_t HUF_initRemainingDStream(BIT_DStream_t* bit, HUF_DecompressAsmArgs
     return 0;
 }
 
-WIN_CDECL void HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
+HUF_ASM_DECL void HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
 
 static HUF_ASM_X86_64_BMI2_ATTRS
 size_t
@@ -1332,7 +1346,7 @@ size_t HUF_decompress4X2_usingDTable_internal_default(void* dst, size_t dstSize,
 
 #if HUF_ENABLE_ASM_X86_64_BMI2
 
-WIN_CDECL void HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
+HUF_ASM_DECL void HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
 
 static HUF_ASM_X86_64_BMI2_ATTRS size_t
 HUF_decompress4X2_usingDTable_internal_bmi2_asm(
