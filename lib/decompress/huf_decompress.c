@@ -534,7 +534,7 @@ static size_t HUF_initDStream(BYTE const* ip) {
 typedef struct {
     BYTE const* ip[4];
     BYTE* op[4];
-    uint64_t bits[4];
+    U64 bits[4];
     void const* dt;
     BYTE const* ilimit;
     BYTE* oend;
@@ -589,10 +589,10 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
         if (length4 > srcSize) return ERROR(corruption_detected);   /* overflow */
     }
     /* ip[] contains the position that is currently loaded into bits[]. */
-    args->ip[0] = args->iend[1] - sizeof(uint64_t);
-    args->ip[1] = args->iend[2] - sizeof(uint64_t);
-    args->ip[2] = args->iend[3] - sizeof(uint64_t);
-    args->ip[3] = (BYTE const*)src + srcSize - sizeof(uint64_t);
+    args->ip[0] = args->iend[1] - sizeof(U64);
+    args->ip[1] = args->iend[2] - sizeof(U64);
+    args->ip[2] = args->iend[3] - sizeof(U64);
+    args->ip[3] = (BYTE const*)src + srcSize - sizeof(U64);
 
     /* op[] contains the output pointers. */
     args->op[0] = (BYTE*)dst;
@@ -684,7 +684,8 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm(
     {
         size_t const segmentSize = (dstSize+3) / 4;
         BYTE* segmentEnd = (BYTE*)dst;
-        for (int i = 0; i < 4; ++i) {
+        int i;
+        for (i = 0; i < 4; ++i) {
             BIT_DStream_t bit;
             if (segmentSize <= (size_t)(oend - segmentEnd))
                 segmentEnd += segmentSize;
@@ -1383,7 +1384,8 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm(
     {
         size_t const segmentSize = (dstSize+3) / 4;
         BYTE* segmentEnd = (BYTE*)dst;
-        for (int i = 0; i < 4; ++i) {
+        int i;
+        for (i = 0; i < 4; ++i) {
             BIT_DStream_t bit;
             if (segmentSize <= (size_t)(oend - segmentEnd))
                 segmentEnd += segmentSize;
