@@ -791,13 +791,7 @@ size_t HUF_decompress4X1_DCtx_wksp(HUF_DTable* dctx, void* dst, size_t dstSize,
 /* double-symbols decoding */
 /* *************************/
 
-#define kPacked 0
-
-#if kPacked
-typedef struct { U32 nbBits : 8; U32 sequence : 16; U32 length : 8; } HUF_DEltX2;  /* double-symbols decoding */
-#else
 typedef struct { U16 sequence; BYTE nbBits; BYTE length; } HUF_DEltX2;  /* double-symbols decoding */
-#endif
 typedef struct { BYTE symbol; } sortedSymbol_t;
 typedef U32 rankValCol_t[HUF_TABLELOG_MAX + 1];
 typedef rankValCol_t rankVal_t[HUF_TABLELOG_MAX];
@@ -814,10 +808,11 @@ static U32 HUF_buildDEltX2U32(U32 symbol, U32 nbBits, U32 baseSeq, int level)
     DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(U32));
     if (MEM_isLittleEndian()) {
         seq = level == 1 ? symbol : (baseSeq + (symbol << 8));
+        return seq + (nbBits << 16) + ((U32)level << 24);
     } else {
         seq = level == 1 ? (symbol << 8) : ((baseSeq << 8) + symbol);
+        return (seq << 16) + (nbBits << 8) + (U32)level;
     }
-    return seq + (nbBits << 16) + ((U32)level << 24);
 }
 
 /**
