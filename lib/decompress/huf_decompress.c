@@ -176,7 +176,7 @@ static U32 HUF_rescaleStats(BYTE* huffWeight, U32* rankVal, U32 nbSymbols, U32 t
         U32 s;
         /* Increase the weight for all non-zero probability symbols by scale. */
         for (s = 0; s < nbSymbols; ++s) {
-            huffWeight[s] += (huffWeight[s] == 0) ? 0 : scale;
+            huffWeight[s] += (BYTE)((huffWeight[s] == 0) ? 0 : scale);
         }
         /* Update rankVal to reflect the new weights.
          * All weights except 0 get moved to weight + scale.
