@@ -224,10 +224,12 @@ size_t HUF_readDTableX1_wksp_bmi2(HUF_DTable* DTable, const void* src, size_t sr
     iSize = HUF_readStats_wksp(wksp->huffWeight, HUF_SYMBOLVALUE_MAX + 1, wksp->rankVal, &nbSymbols, &tableLog, src, srcSize, wksp->statsWksp, sizeof(wksp->statsWksp), bmi2);
     if (HUF_isError(iSize)) return iSize;
 
-    tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, HUF_DECODER_FAST_TABLELOG);
 
     /* Table header */
     {   DTableDesc dtd = HUF_getDTableDesc(DTable);
+        U32 const maxTableLog = dtd.maxTableLog + 1;
+        U32 const targetTableLog = maxTableLog < HUF_DECODER_FAST_TABLELOG ? maxTableLog : HUF_DECODER_FAST_TABLELOG;
+        tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, targetTableLog);
         if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
         dtd.tableType = 0;
         dtd.tableLog = (BYTE)tableLog;
