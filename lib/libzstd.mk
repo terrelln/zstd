@@ -113,16 +113,9 @@ ZSTD_LEGACY_FILES :=
 
 ZSTD_DECOMPRESS_AMD64_ASM_FILES := $(sort $(wildcard $(LIBZSTD)/decompress/*_amd64.S))
 
-ifeq ($(ZSTD_NO_ASM), 1)
-  CPPFLAGS += -DHUF_DISABLE_ASM
-  ARCH :=
-else
-  ARCH := $(shell /bin/echo -e "$(NUM_SYMBOL)if defined(__x86_64__) || defined(_M_X86)\namd64\n$(NUM_SYMBOL)elif defined(__i386__)\nx86\n$(NUM_SYMBOL)elif defined(__aarch64__)\naarch64\n$(NUM_SYMBOL)elif defined(__arm__)\narm\n$(NUM_SYMBOL)endif" | $(CC) $(CPPFLAGS) $(CFLAGS) -E -x c - | sed -n "/^[^$(NUM_SYMBOL)]/p")
-endif
-
-ifeq ($(ARCH), amd64)
-  ZSTD_DECOMPRESS_FILES += $(ZSTD_DECOMPRESS_AMD64_ASM_FILES)
-endif
+# Unconditionally add the ASM files they are disabled by
+# macros in the .S file.
+ZSTD_DECOMPRESS_FILES += $(ZSTD_DECOMPRESS_AMD64_ASM_FILES)
 
 ifneq ($(HUF_FORCE_DECOMPRESS_X1), 0)
   CFLAGS += -DHUF_FORCE_DECOMPRESS_X1
