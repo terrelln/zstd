@@ -164,12 +164,13 @@ static U64 HUF_DEltX1_set4(BYTE symbol, BYTE nbBits) {
 
 /**
  * Increase the tableLog to targetTableLog and rescales the stats.
- * @pre tableLog <= targetTableLog
- * @returns targetTableLog
+ * If tableLog > targetTableLog this is a no-op.
+ * @returns New tableLog
  */
 static U32 HUF_rescaleStats(BYTE* huffWeight, U32* rankVal, U32 nbSymbols, U32 tableLog, U32 targetTableLog)
 {
-    assert(tableLog <= targetTableLog);
+    if (tableLog > targetTableLog)
+        return tableLog;
     if (tableLog < targetTableLog) {
         U32 const scale = targetTableLog - tableLog;
         U32 s;
@@ -1048,7 +1049,7 @@ size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable,
     ZSTD_memset(wksp->rankStart0, 0, sizeof(wksp->rankStart0));
 
     DEBUG_STATIC_ASSERT(sizeof(HUF_DEltX2) == sizeof(HUF_DTable));   /* if compiler fails here, assertion is wrong */
-    if (maxTableLog > HUF_DECODER_FAST_TABLELOG) maxTableLog = HUF_DECODER_FAST_TABLELOG;
+    if (maxTableLog > HUF_TABLELOG_MAX) maxTableLog = HUF_TABLELOG_MAX;
     RETURN_ERROR_IF(maxTableLog < HUF_DECODER_FAST_TABLELOG, tableLog_tooLarge, "maxTableLog too small");
     /* ZSTD_memset(weightList, 0, sizeof(weightList)); */  /* is not necessary, even though some analyzer complain ... */
 
@@ -1057,6 +1058,7 @@ size_t HUF_readDTableX2_wksp_bmi2(HUF_DTable* DTable,
 
     /* check result */
     if (tableLog > maxTableLog) return ERROR(tableLog_tooLarge);   /* DTable can't fit code depth */
+    if (tableLog <= HUF_DECODER_FAST_TABLELOG) maxTableLog = HUF_DECODER_FAST_TABLELOG;
 
     /* find maxWeight */
     for (maxW = tableLog; wksp->rankStats[maxW]==0; maxW--) {}  /* necessarily finds a solution before 0 */

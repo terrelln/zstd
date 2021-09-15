@@ -445,7 +445,7 @@ typedef struct {
 /* RANK_POSITION_DISTINCT_COUNT_CUTOFF == Cutoff point in HUF_sort() buckets for which we use log2 bucketing.
  * Strategy is to use as many buckets as possible for representing distinct
  * counts while using the remainder to represent all "large" counts.
- * 
+ *
  * To satisfy this requirement for 192 buckets, we can do the following:
  * Let buckets 0-166 represent distinct counts of [0, 166]
  * Let buckets 166 to 192 represent all remaining counts up to RANK_POSITION_MAX_COUNT_LOG using log2 bucketing.
@@ -517,7 +517,7 @@ static int HUF_quickSortPartition(nodeElt arr[], int const low, int const high) 
 }
 
 /* Classic quicksort by descending with partially iterative calls
- * to reduce worst case callstack size. 
+ * to reduce worst case callstack size.
  */
 static void HUF_simpleQuickSort(nodeElt arr[], int low, int high) {
     int const kInsertionSortThreshold = 8;
