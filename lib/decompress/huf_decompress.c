@@ -22,6 +22,7 @@
 #define HUF_STATIC_LINKING_ONLY
 #include "../common/huf.h"
 #include "../common/error_private.h"
+#include "../common/zstd_internal.h"
 
 /* **************************************************************
 *  Constants
@@ -228,7 +229,7 @@ size_t HUF_readDTableX1_wksp_bmi2(HUF_DTable* DTable, const void* src, size_t sr
     /* Table header */
     {   DTableDesc dtd = HUF_getDTableDesc(DTable);
         U32 const maxTableLog = dtd.maxTableLog + 1;
-        U32 const targetTableLog = maxTableLog < HUF_DECODER_FAST_TABLELOG ? maxTableLog : HUF_DECODER_FAST_TABLELOG;
+        U32 const targetTableLog = MIN(maxTableLog, HUF_DECODER_FAST_TABLELOG);
         tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, targetTableLog);
         if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
         dtd.tableType = 0;
@@ -524,10 +525,11 @@ size_t HUF_decompress4X1_usingDTable_internal_default(void* dst, size_t dstSize,
 
 
 static size_t HUF_initDStream(BYTE const* ip) {
+    BYTE const lastByte = ip[7];
+    size_t const bitsConsumed = lastByte ? 8 - BIT_highbit32(lastByte) : 0;
     size_t const value = MEM_readLEST(ip) | 1;
-    size_t const lz = __builtin_clzll(value);
-    assert(lz < 8);
-    return value << (lz + 1);
+    assert(bitsConsumed <= 8);
+    return value << bitsConsumed;
 }
 typedef struct {
     BYTE const* ip[4];
@@ -637,7 +639,7 @@ static size_t HUF_initRemainingDStream(BIT_DStream_t* bit, HUF_DecompressAsmArgs
 
     /* Construct the BIT_DStream_t. */
     bit->bitContainer = MEM_readLE64(args->ip[stream]);
-    bit->bitsConsumed = __builtin_ctzll(args->bits[stream]);
+    bit->bitsConsumed = ZSTD_ctzll(args->bits[stream]);
     bit->start = (const char*)args->iend[0];
     bit->limitPtr = bit->start + sizeof(size_t);
     bit->ptr = (const char*)args->ip[stream];

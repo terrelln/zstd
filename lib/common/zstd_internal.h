@@ -378,6 +378,32 @@ MEM_STATIC U32 ZSTD_highbit32(U32 val)   /* compress, dictBuilder, decodeCorpus 
     }
 }
 
+MEM_STATIC U32 ZSTD_ctzll(U64 val)
+{
+    assert(val != 0);
+#   if defined(_MSC_VER)
+#       if STATIC_BMI2 == 1
+            return _tzcnt_u64(val);
+#       else
+            unsigned long r = 0;
+            return _BitScanForward(&r, val) ? (unsigned)r : 0;
+#       endif
+#   elif defined(__GNUC__) && (__GNUC__ >= 3)
+        return __builtin_ctzll(val);
+#   else /* Software version */
+    {
+        U32 trailingZeros = 0;
+        if (val == 0)
+            return 0;
+        while ((val & 1) == 0) {
+            val >>= 1;
+            ++trailingZeros;
+        }
+        return trailingZeros;
+    }
+#   endif
+}
+
 
 /* ZSTD_invalidateRepCodes() :
  * ensures next compression will not use repcodes from previous block.
