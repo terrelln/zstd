@@ -85,7 +85,11 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	push %r15
 
 	# Read HUF_DecompressAsmArgs* args from %rdi
+#if defined(_MSC_VER)
+	movq 0(%rbp), %rax
+#else
 	movq %rdi, %rax
+#endif
 	movq  0(%rax), %ip0
 	movq  8(%rax), %ip1
 	movq 16(%rax), %ip2
@@ -328,7 +332,11 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	push %r14
 	push %r15
 
+#if defined(_MSC_VER)
+	movq 0(%rbp), %rax
+#else
 	movq %rdi, %rax
+#endif
 	movq  0(%rax), %ip0
 	movq  8(%rax), %ip1
 	movq 16(%rax), %ip2

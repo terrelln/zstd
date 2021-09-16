@@ -49,7 +49,6 @@
 #if ZSTD_MEMORY_SANITIZER && !defined(HUF_DISABLE_ASM)
 # define HUF_DISABLE_ASM 1
 #endif
-#define HUF_DISABLE_ASM 1
 
 /* HUF_DISABLE_ASM: Disables all ASM implementations.  */
 #if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X64)) && (DYNAMIC_BMI2 || defined(__BMI2__))
