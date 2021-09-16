@@ -140,6 +140,136 @@ static DTableDesc HUF_getDTableDesc(const HUF_DTable* table)
     return dtd;
 }
 
+#if HUF_ENABLE_ASM_X86_64_BMI2
+
+static size_t HUF_initDStream(BYTE const* ip) {
+    BYTE const lastByte = ip[7];
+    size_t const bitsConsumed = lastByte ? 8 - BIT_highbit32(lastByte) : 0;
+    size_t const value = MEM_readLEST(ip) | 1;
+    assert(bitsConsumed <= 8);
+    return value << bitsConsumed;
+}
+typedef struct {
+    BYTE const* ip[4];
+    BYTE* op[4];
+    U64 bits[4];
+    void const* dt;
+    BYTE const* ilimit;
+    BYTE* oend;
+    BYTE const* iend[4];
+} HUF_DecompressAsmArgs;
+
+/**
+ * Initializes args for the asm decoding loop.
+ * @returns 0 on success
+ *          1 if the fallback implementation should be used.
+ *          Or an error code on failure.
+ */
+static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst, size_t dstSize, void const* src, size_t srcSize, const HUF_DTable* DTable)
+{
+    void const* dt = DTable + 1;
+    U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
+
+    const BYTE* const ilimit = (const BYTE*)src + 6 + 8;
+
+    BYTE* const oend = (BYTE*)dst + dstSize;
+
+    /* strict minimum : jump table + 1 byte per stream */
+    if (srcSize < 10)
+        return ERROR(corruption_detected);
+
+    /* Must have at least 8 bytes per stream because we don't handle initializing smaller bit containers.
+     * If table log is not correct at this point, fallback to the old decoder.
+     * On small inputs we don't have enough data to trigger the fast loop, so use the old decoder.
+     */
+    if (dtLog != HUF_DECODER_FAST_TABLELOG)
+        return 1;
+
+    /* Read the jump table. */
+    {
+        const BYTE* const istart = (const BYTE*)src;
+        size_t const length1 = MEM_readLE16(istart);
+        size_t const length2 = MEM_readLE16(istart+2);
+        size_t const length3 = MEM_readLE16(istart+4);
+        size_t const length4 = srcSize - (length1 + length2 + length3 + 6);
+        args->iend[0] = istart + 6;  /* jumpTable */
+        args->iend[1] = args->iend[0] + length1;
+        args->iend[2] = args->iend[1] + length2;
+        args->iend[3] = args->iend[2] + length3;
+
+        /* HUF_initDStream() requires this, and this small of an input
+         * won't benefit from the ASM loop anyways.
+         * length1 must be >= 16 so that ip[0] >= ilimit before the loop
+         * starts.
+         */
+        if (length1 < 16 || length2 < 8 || length3 < 8 || length4 < 8)
+            return 1;
+        if (length4 > srcSize) return ERROR(corruption_detected);   /* overflow */
+    }
+    /* ip[] contains the position that is currently loaded into bits[]. */
+    args->ip[0] = args->iend[1] - sizeof(U64);
+    args->ip[1] = args->iend[2] - sizeof(U64);
+    args->ip[2] = args->iend[3] - sizeof(U64);
+    args->ip[3] = (BYTE const*)src + srcSize - sizeof(U64);
+
+    /* op[] contains the output pointers. */
+    args->op[0] = (BYTE*)dst;
+    args->op[1] = args->op[0] + (dstSize+3)/4;
+    args->op[2] = args->op[1] + (dstSize+3)/4;
+    args->op[3] = args->op[2] + (dstSize+3)/4;
+
+    /* No point to call the ASM loop for tiny outputs. */
+    if (args->op[3] >= oend)
+        return 1;
+
+    /* bits[] is the bit container.
+        * It is read from the MSB down to the LSB.
+        * It is shifted left as it is read, and zeros are
+        * shifted in. After the lowest valid bit a 1 is
+        * set, so that CountTrailingZeros(bits[]) can be used
+        * to count how many bits we've consumed.
+        */
+    args->bits[0] = HUF_initDStream(args->ip[0]);
+    args->bits[1] = HUF_initDStream(args->ip[1]);
+    args->bits[2] = HUF_initDStream(args->ip[2]);
+    args->bits[3] = HUF_initDStream(args->ip[3]);
+
+    /* If ip[] >= ilimit, it is guaranteed to be safe to
+        * reload bits[]. It may be beyond its section, but is
+        * guaranteed to be valid (>= istart).
+        */
+    args->ilimit = ilimit;
+
+    args->oend = oend;
+    args->dt = dt;
+
+    return 0;
+}
+
+static size_t HUF_initRemainingDStream(BIT_DStream_t* bit, HUF_DecompressAsmArgs const* args, int stream, BYTE* segmentEnd)
+{
+    /* Validate that we haven't overwritten. */
+    if (args->op[stream] > segmentEnd)
+        return ERROR(corruption_detected);
+    /* Validate that we haven't read beyond iend[].
+        * Note that ip[] may be < iend[] because the MSB is
+        * the next bit to read, and we may have consumed 100%
+        * of the stream, so down to iend[i] - 8 is valid.
+        */
+    if (args->ip[stream] < args->iend[stream] - 8)
+        return ERROR(corruption_detected);
+
+    /* Construct the BIT_DStream_t. */
+    bit->bitContainer = MEM_readLE64(args->ip[stream]);
+    bit->bitsConsumed = ZSTD_ctzll(args->bits[stream]);
+    bit->start = (const char*)args->iend[0];
+    bit->limitPtr = bit->start + sizeof(size_t);
+    bit->ptr = (const char*)args->ip[stream];
+
+    return 0;
+}
+#endif
+
 
 #ifndef HUF_FORCE_DECOMPRESS_X2
 
@@ -522,134 +652,6 @@ size_t HUF_decompress4X1_usingDTable_internal_default(void* dst, size_t dstSize,
 }
 
 #if HUF_ENABLE_ASM_X86_64_BMI2
-
-
-static size_t HUF_initDStream(BYTE const* ip) {
-    BYTE const lastByte = ip[7];
-    size_t const bitsConsumed = lastByte ? 8 - BIT_highbit32(lastByte) : 0;
-    size_t const value = MEM_readLEST(ip) | 1;
-    assert(bitsConsumed <= 8);
-    return value << bitsConsumed;
-}
-typedef struct {
-    BYTE const* ip[4];
-    BYTE* op[4];
-    U64 bits[4];
-    void const* dt;
-    BYTE const* ilimit;
-    BYTE* oend;
-    BYTE const* iend[4];
-} HUF_DecompressAsmArgs;
-
-/**
- * Initializes args for the asm decoding loop.
- * @returns 0 on success
- *          1 if the fallback implementation should be used.
- *          Or an error code on failure.
- */
-static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst, size_t dstSize, void const* src, size_t srcSize, const HUF_DTable* DTable)
-{
-    void const* dt = DTable + 1;
-    U32 const dtLog = HUF_getDTableDesc(DTable).tableLog;
-
-    const BYTE* const ilimit = (const BYTE*)src + 6 + 8;
-
-    BYTE* const oend = (BYTE*)dst + dstSize;
-
-    /* strict minimum : jump table + 1 byte per stream */
-    if (srcSize < 10)
-        return ERROR(corruption_detected);
-
-    /* Must have at least 8 bytes per stream because we don't handle initializing smaller bit containers.
-     * If table log is not correct at this point, fallback to the old decoder.
-     * On small inputs we don't have enough data to trigger the fast loop, so use the old decoder.
-     */
-    if (dtLog != HUF_DECODER_FAST_TABLELOG)
-        return 1;
-
-    /* Read the jump table. */
-    {
-        const BYTE* const istart = (const BYTE*)src;
-        size_t const length1 = MEM_readLE16(istart);
-        size_t const length2 = MEM_readLE16(istart+2);
-        size_t const length3 = MEM_readLE16(istart+4);
-        size_t const length4 = srcSize - (length1 + length2 + length3 + 6);
-        args->iend[0] = istart + 6;  /* jumpTable */
-        args->iend[1] = args->iend[0] + length1;
-        args->iend[2] = args->iend[1] + length2;
-        args->iend[3] = args->iend[2] + length3;
-
-        /* HUF_initDStream() requires this, and this small of an input
-         * won't benefit from the ASM loop anyways.
-         * length1 must be >= 16 so that ip[0] >= ilimit before the loop
-         * starts.
-         */
-        if (length1 < 16 || length2 < 8 || length3 < 8 || length4 < 8)
-            return 1;
-        if (length4 > srcSize) return ERROR(corruption_detected);   /* overflow */
-    }
-    /* ip[] contains the position that is currently loaded into bits[]. */
-    args->ip[0] = args->iend[1] - sizeof(U64);
-    args->ip[1] = args->iend[2] - sizeof(U64);
-    args->ip[2] = args->iend[3] - sizeof(U64);
-    args->ip[3] = (BYTE const*)src + srcSize - sizeof(U64);
-
-    /* op[] contains the output pointers. */
-    args->op[0] = (BYTE*)dst;
-    args->op[1] = args->op[0] + (dstSize+3)/4;
-    args->op[2] = args->op[1] + (dstSize+3)/4;
-    args->op[3] = args->op[2] + (dstSize+3)/4;
-
-    /* No point to call the ASM loop for tiny outputs. */
-    if (args->op[3] >= oend)
-        return 1;
-
-    /* bits[] is the bit container.
-        * It is read from the MSB down to the LSB.
-        * It is shifted left as it is read, and zeros are
-        * shifted in. After the lowest valid bit a 1 is
-        * set, so that CountTrailingZeros(bits[]) can be used
-        * to count how many bits we've consumed.
-        */
-    args->bits[0] = HUF_initDStream(args->ip[0]);
-    args->bits[1] = HUF_initDStream(args->ip[1]);
-    args->bits[2] = HUF_initDStream(args->ip[2]);
-    args->bits[3] = HUF_initDStream(args->ip[3]);
-
-    /* If ip[] >= ilimit, it is guaranteed to be safe to
-        * reload bits[]. It may be beyond its section, but is
-        * guaranteed to be valid (>= istart).
-        */
-    args->ilimit = ilimit;
-
-    args->oend = oend;
-    args->dt = dt;
-
-    return 0;
-}
-
-static size_t HUF_initRemainingDStream(BIT_DStream_t* bit, HUF_DecompressAsmArgs const* args, int stream, BYTE* segmentEnd)
-{
-    /* Validate that we haven't overwritten. */
-    if (args->op[stream] > segmentEnd)
-        return ERROR(corruption_detected);
-    /* Validate that we haven't read beyond iend[].
-        * Note that ip[] may be < iend[] because the MSB is
-        * the next bit to read, and we may have consumed 100%
-        * of the stream, so down to iend[i] - 8 is valid.
-        */
-    if (args->ip[stream] < args->iend[stream] - 8)
-        return ERROR(corruption_detected);
-
-    /* Construct the BIT_DStream_t. */
-    bit->bitContainer = MEM_readLE64(args->ip[stream]);
-    bit->bitsConsumed = ZSTD_ctzll(args->bits[stream]);
-    bit->start = (const char*)args->iend[0];
-    bit->limitPtr = bit->start + sizeof(size_t);
-    bit->ptr = (const char*)args->ip[stream];
-
-    return 0;
-}
 
 HUF_ASM_DECL void HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop(HUF_DecompressAsmArgs* args);
 
