@@ -50,8 +50,8 @@
 # define HUF_DISABLE_ASM 1
 #endif
 
-/* HUF_DISABLE_ASM: Disables all ASM implementations.  */
-#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X64)) && (DYNAMIC_BMI2 || defined(__BMI2__))
+/* HUF_DISABLE_ASM: Disables all ASM implementations. */
+#if !defined(HUF_DISABLE_ASM) && defined(__GNUC__) && defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
 #else
 # define HUF_ENABLE_ASM_X86_64_BMI2 0

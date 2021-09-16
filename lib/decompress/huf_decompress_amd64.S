@@ -1,4 +1,4 @@
-#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X64))
+#if !defined(HUF_DISABLE_ASM) && (defined(__GNUC__) && defined(__x86_64__))
 .global HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop
 .global HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop
 .global _HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop
@@ -66,8 +66,7 @@
 
 _HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
-	# Save all callee saved registers.
-	# Commented out registers are caller saved.
+	# Save all registers - even if they are callee saved for simplicity.
 	push %rax
 	push %rbx
 	push %rcx
@@ -84,12 +83,8 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 	push %r14
 	push %r15
 
-	# Read HUF_DecompressAsmArgs* args from %rdi
-#if defined(_MSC_VER)
-	movq %rcx, %rax
-#else
+	# Read HUF_DecompressAsmArgs* args from %rax
 	movq %rdi, %rax
-#endif
 	movq  0(%rax), %ip0
 	movq  8(%rax), %ip1
 	movq 16(%rax), %ip2
@@ -316,6 +311,7 @@ HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop:
 
 _HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
+	# Save all registers - even if they are callee saved for simplicity.
 	push %rax
 	push %rbx
 	push %rcx
@@ -332,11 +328,7 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	push %r14
 	push %r15
 
-#if defined(_MSC_VER)
-	movq %rcx, %rax
-#else
 	movq %rdi, %rax
-#endif
 	movq  0(%rax), %ip0
 	movq  8(%rax), %ip1
 	movq 16(%rax), %ip2
