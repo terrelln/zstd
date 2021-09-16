@@ -378,6 +378,12 @@ MEM_STATIC U32 ZSTD_highbit32(U32 val)   /* compress, dictBuilder, decodeCorpus 
     }
 }
 
+/**
+ * Computes CTZ on a U64.
+ * This will be slow on 32-bit mode, and on unsupported compilers.
+ * If you need this function to be fast (because it is hot) expand
+ * support.
+ */
 MEM_STATIC U32 ZSTD_ctzll(U64 val)
 {
     assert(val != 0);
