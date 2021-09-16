@@ -43,20 +43,22 @@
 #error "Cannot force the use of the X1 and X2 decoders at the same time!"
 #endif
 
-/* Don't use assembly on Windows. */
-#if defined(_MSC_VER) && !defined(HUF_DISABLE_ASM)
-# define HUF_DISABLE_ASM 1
-#endif
-
-/* Assembly code does not work with memory sanitizer because it needs
- * to instrument 100% of code to work.
+/* Only use assembly with GNUC on Linux / Apple.
+ * Disable when MSAN is enabled.
  */
-#if ZSTD_MEMORY_SANITIZER && !defined(HUF_DISABLE_ASM)
-# define HUF_DISABLE_ASM 1
+#if defined(__GNUC__)                                                 \
+    && !(defined(_MSC_VER) || defined(_WIN32))                        \
+    && (defined(__APPLE__) || defined(__linux__) || defined(__linux)) \
+    && !ZSTD_MEMORY_SANITIZER
+# define HUF_ASM_SUPPORTED 1
+#else
+# define HUF_ASM_SUPPORTED 0
 #endif
 
 /* HUF_DISABLE_ASM: Disables all ASM implementations.  */
-#if !defined(HUF_DISABLE_ASM) && defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
+#if !defined(HUF_DISABLE_ASM)                                     \
+    && HUF_ASM_SUPPORTED                                          \
+    && defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
 #else
 # define HUF_ENABLE_ASM_X86_64_BMI2 0
@@ -73,7 +75,7 @@
 #else
 # define HUF_EXTERN_C
 #endif
-#define HUF_ASM_DECL HUF_EXTERN_C WIN_CDECL
+#define HUF_ASM_DECL HUF_EXTERN_C
 
 /* **************************************************************
 *  Error Management
