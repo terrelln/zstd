@@ -386,7 +386,7 @@ MEM_STATIC U32 ZSTD_ctzll(U64 val)
             return _tzcnt_u64(val);
 #       else
             unsigned long r = 0;
-            return _BitScanForward(&r, val) ? (unsigned)r : 0;
+            return _BitScanForward64(&r, val) ? (unsigned)r : 0;
 #       endif
 #   elif defined(__GNUC__) && (__GNUC__ >= 3)
         return __builtin_ctzll(val);
