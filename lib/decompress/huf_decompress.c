@@ -174,6 +174,9 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
 
     BYTE* const oend = (BYTE*)dst + dstSize;
 
+    /* We're assuming x86-64 BMI2 - assure that this is the case. */
+    assert(MEM_isLittleEndian() && !MEM_32bits());
+
     /* strict minimum : jump table + 1 byte per stream */
     if (srcSize < 10)
         return ERROR(corruption_detected);
