@@ -43,6 +43,11 @@
 #error "Cannot force the use of the X1 and X2 decoders at the same time!"
 #endif
 
+/* Don't use assembly on Windows. */
+#if defined(_MSC_VER) && !defined(HUF_DISABLE_ASM)
+# define HUF_DISABLE_ASM 1
+#endif
+
 /* Assembly code does not work with memory sanitizer because it needs
  * to instrument 100% of code to work.
  */
@@ -50,8 +55,8 @@
 # define HUF_DISABLE_ASM 1
 #endif
 
-/* HUF_DISABLE_ASM: Disables all ASM implementations. */
-#if !defined(HUF_DISABLE_ASM) && defined(__GNUC__) && defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
+/* HUF_DISABLE_ASM: Disables all ASM implementations.  */
+#if !defined(HUF_DISABLE_ASM) && defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
 #else
 # define HUF_ENABLE_ASM_X86_64_BMI2 0
