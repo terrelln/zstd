@@ -347,20 +347,16 @@ HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop:
 	push 104(%rax) # ilimit
 
 	movq 112(%rax), %rax
-	subq $4, %rax
-	push %rax # oend3 - 4
+	push %rax # oend3
 
 	movq %op3, %rax
-	subq $4, %rax
-	push %rax # oend2 - 4
+	push %rax # oend2
 
 	movq %op2, %rax
-	subq $4, %rax
-	push %rax # oend1 - 4
+	push %rax # oend1
 
 	movq %op1, %rax
-	subq $4, %rax
-	push %rax # oend0 - 4
+	push %rax # oend0
 
 .L_4X2_compute_olimit:
 	# Computes how many iterations we can do savely
