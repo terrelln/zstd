@@ -381,7 +381,7 @@ MEM_STATIC U32 ZSTD_highbit32(U32 val)   /* compress, dictBuilder, decodeCorpus 
 MEM_STATIC U32 ZSTD_ctzll(U64 val)
 {
     assert(val != 0);
-#   if defined(_MSC_VER)
+#   if defined(_MSC_VER) && (defined(__x86_64__) || defined(_M_X86))
 #       if STATIC_BMI2 == 1
             return _tzcnt_u64(val);
 #       else
