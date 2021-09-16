@@ -600,6 +600,10 @@ static size_t HUF_DecompressAsmArgs_init(HUF_DecompressAsmArgs* args, void* dst,
     args->op[2] = args->op[1] + (dstSize+3)/4;
     args->op[3] = args->op[2] + (dstSize+3)/4;
 
+    /* No point to call the ASM loop for tiny outputs. */
+    if (args->op[3] >= oend)
+        return 1;
+
     /* bits[] is the bit container.
         * It is read from the MSB down to the LSB.
         * It is shifted left as it is read, and zeros are
