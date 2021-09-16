@@ -51,7 +51,7 @@
 #endif
 
 /* HUF_DISABLE_ASM: Disables all ASM implementations.  */
-#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X86)) && (DYNAMIC_BMI2 || defined(__BMI2__))
+#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X64)) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
 #else
 # define HUF_ENABLE_ASM_X86_64_BMI2 0
@@ -1018,15 +1018,6 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
                 sortedList + begin, sortedList + end,
                 nbBits, targetLog,
                 /* baseSeq */ 0, /* level */ 1);
-        }
-    }
-    {
-        int i;
-        int const t = 1 << targetLog;
-        assert(targetLog <= 12);
-        for (i = 0; i < t; ++i) {
-            assert(DTable[i].nbBits <= targetLog);
-            assert(DTable[i].length == 1 || DTable[i].length == 2);
         }
     }
 }

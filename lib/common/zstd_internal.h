@@ -397,13 +397,14 @@ MEM_STATIC unsigned ZSTD_countTrailingZeros(size_t val)
 #       elif defined(__GNUC__) && (__GNUC__ >= 4)
             return __builtin_ctzll((U64)val);
 #       else
-            static const int DeBruijnBytePos[64] = { 0, 1, 2, 7, 3, 13, 8, 19, 4,
-                                                     25, 14, 28, 9, 34, 20, 56, 5,
-                                                     17, 26, 54, 15, 41, 29, 43, 10,
-                                                     31, 38, 35, 21, 45, 49, 57, 63,
-                                                     6, 12, 18, 24, 27, 33, 55, 16,
-                                                     53, 40, 42, 30, 37, 44, 48, 62,
-                                                     11, 23, 32, 52, 39, 36, 47, 61 };
+            static const int DeBruijnBytePos[64] = {  0,  1,  2,  7,  3, 13,  8, 19,
+                                                      4, 25, 14, 28,  9, 34, 20, 56,
+                                                      5, 17, 26, 54, 15, 41, 29, 43,
+                                                      10, 31, 38, 35, 21, 45, 49, 57,
+                                                      63,  6, 12, 18, 24, 27, 33, 55,
+                                                      16, 53, 40, 42, 30, 37, 44, 48,
+                                                      62, 11, 23, 32, 52, 39, 36, 47,
+                                                      61, 22, 51, 46, 60, 50, 59, 58 };
             return DeBruijnBytePos[((U64)((val & -(long long)val) * 0x0218A392CDABBD3FULL)) >> 58];
 #       endif
     } else { /* 32 bits */
@@ -413,9 +414,10 @@ MEM_STATIC unsigned ZSTD_countTrailingZeros(size_t val)
 #       elif defined(__GNUC__) && (__GNUC__ >= 3)
             return (__builtin_ctz((U32)val) >> 3);
 #       else
-            static const int DeBruijnBytePos[32] = { 0, 1, 28, 2, 29, 14, 24, 3, 30,
-                                                     22, 20, 15, 25, 17, 4, 8, 31,
-                                                     27, 13, 23, 21, 19, 16, 7, 26 };
+            static const int DeBruijnBytePos[32] = {  0,  1, 28,  2, 29, 14, 24,  3,
+                                                     30, 22, 20, 15, 25, 17,  4,  8,
+                                                     31, 27, 13, 23, 21, 19, 16,  7,
+                                                     26, 12, 18,  6, 11,  5, 10,  9 };
             return DeBruijnBytePos[((U32)((val & -(S32)val) * 0x077CB531U)) >> 27];
 #       endif
     }

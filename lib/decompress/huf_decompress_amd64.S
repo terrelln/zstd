@@ -1,4 +1,4 @@
-#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X86))
+#if !defined(HUF_DISABLE_ASM) && (defined(__x86_64__) || defined(_M_X64))
 .global HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop
 .global HUF_decompress4X2_usingDTable_internal_bmi2_asm_loop
 .global _HUF_decompress4X1_usingDTable_internal_bmi2_asm_loop
