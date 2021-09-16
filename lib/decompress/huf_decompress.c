@@ -46,19 +46,19 @@
 /* Only use assembly with GNUC on Linux / Apple.
  * Disable when MSAN is enabled.
  */
-#if defined(__GNUC__)                                                 \
-    && !(defined(_MSC_VER) || defined(_WIN32))                        \
-    && (defined(__APPLE__) || defined(__linux__) || defined(__linux)) \
-    && !ZSTD_MEMORY_SANITIZER
+#if defined(__GNUC__) &&                                              \
+    !(defined(_MSC_VER) || defined(_WIN32)) &&                        \
+    (defined(__APPLE__) || defined(__linux__) || defined(__linux)) && \
+    !ZSTD_MEMORY_SANITIZER
 # define HUF_ASM_SUPPORTED 1
 #else
 # define HUF_ASM_SUPPORTED 0
 #endif
 
 /* HUF_DISABLE_ASM: Disables all ASM implementations.  */
-#if !defined(HUF_DISABLE_ASM)                                     \
-    && HUF_ASM_SUPPORTED                                          \
-    && defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
+#if !defined(HUF_DISABLE_ASM) &&                                  \
+    HUF_ASM_SUPPORTED &&                                          \
+    defined(__x86_64__) && (DYNAMIC_BMI2 || defined(__BMI2__))
 # define HUF_ENABLE_ASM_X86_64_BMI2 1
 #else
 # define HUF_ENABLE_ASM_X86_64_BMI2 0
@@ -1003,6 +1003,7 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
         int const end = (int)rankStart[w+1];
         U32 const nbBits = nbBitsBaseline - w;
 
+        assert(nbBits <= targetLog);
         if (targetLog-nbBits >= minBits) {
             /* Enough room for a second symbol */
             int start = rankVal[w];
