@@ -836,6 +836,7 @@ static HUF_DEltX2 HUF_buildDEltX2(U32 symbol, U32 nbBits, U32 baseSeq, int level
 {
     HUF_DEltX2 DElt;
     U32 const val = HUF_buildDEltX2U32(symbol, nbBits, baseSeq, level);
+    DEBUG_STATIC_ASSERT(sizeof(DElt) == sizeof(val));
     ZSTD_memcpy(&DElt, &val, sizeof(val));
     return DElt;
 }
@@ -1017,6 +1018,15 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
                 sortedList + begin, sortedList + end,
                 nbBits, targetLog,
                 /* baseSeq */ 0, /* level */ 1);
+        }
+    }
+    {
+        int i;
+        int const t = 1 << targetLog;
+        assert(targetLog <= 12);
+        for (i = 0; i < t; ++i) {
+            assert(DTable[i].nbBits <= targetLog);
+            assert(DTable[i].length == 1 || DTable[i].length == 2);
         }
     }
 }
