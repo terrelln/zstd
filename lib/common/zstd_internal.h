@@ -384,30 +384,41 @@ MEM_STATIC U32 ZSTD_highbit32(U32 val)   /* compress, dictBuilder, decodeCorpus 
  * If you need this function to be fast (because it is hot) expand
  * support.
  */
-MEM_STATIC U32 ZSTD_ctzll(U64 val)
+MEM_STATIC unsigned ZSTD_countTrailingZeros(size_t val)
 {
-    assert(val != 0);
-#   if defined(_MSC_VER) && (defined(__x86_64__) || defined(_M_X86))
-#       if STATIC_BMI2 == 1
-            return _tzcnt_u64(val);
+    if (MEM_64bits()) {
+#       if defined(_MSC_VER) && defined(_WIN64)
+#           if STATIC_BMI2
+                return _tzcnt_u64(val);
+#           else
+                unsigned long r = 0;
+                return _BitScanForward64( &r, (U64)val ) ? (unsigned)(r >> 3) : 0;
+#           endif
+#       elif defined(__GNUC__) && (__GNUC__ >= 4)
+            return __builtin_ctzll((U64)val);
 #       else
-            unsigned long r = 0;
-            return _BitScanForward64(&r, val) ? (unsigned)r : 0;
+            static const int DeBruijnBytePos[64] = { 0, 1, 2, 7, 3, 13, 8, 19, 4,
+                                                     25, 14, 28, 9, 34, 20, 56, 5,
+                                                     17, 26, 54, 15, 41, 29, 43, 10,
+                                                     31, 38, 35, 21, 45, 49, 57, 63,
+                                                     6, 12, 18, 24, 27, 33, 55, 16,
+                                                     53, 40, 42, 30, 37, 44, 48, 62,
+                                                     11, 23, 32, 52, 39, 36, 47, 61 };
+            return DeBruijnBytePos[((U64)((val & -(long long)val) * 0x0218A392CDABBD3FULL)) >> 58];
 #       endif
-#   elif defined(__GNUC__) && (__GNUC__ >= 3)
-        return __builtin_ctzll(val);
-#   else /* Software version */
-    {
-        U32 trailingZeros = 0;
-        if (val == 0)
-            return 0;
-        while ((val & 1) == 0) {
-            val >>= 1;
-            ++trailingZeros;
-        }
-        return trailingZeros;
+    } else { /* 32 bits */
+#       if defined(_MSC_VER)
+            unsigned long r=0;
+            return _BitScanForward( &r, (U32)val ) ? (unsigned)(r >> 3) : 0;
+#       elif defined(__GNUC__) && (__GNUC__ >= 3)
+            return (__builtin_ctz((U32)val) >> 3);
+#       else
+            static const int DeBruijnBytePos[32] = { 0, 1, 28, 2, 29, 14, 24, 3, 30,
+                                                     22, 20, 15, 25, 17, 4, 8, 31,
+                                                     27, 13, 23, 21, 19, 16, 7, 26 };
+            return DeBruijnBytePos[((U32)((val & -(S32)val) * 0x077CB531U)) >> 27];
+#       endif
     }
-#   endif
 }
 
 

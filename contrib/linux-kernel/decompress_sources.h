@@ -25,7 +25,7 @@
  * Disable the ASM Huffman implementation because we need to
  * include all the sources.
  */
-#define HUF_DISABLE_ASM 0
+#define HUF_DISABLE_ASM 1
 #include "decompress/huf_decompress.c"
 #include "decompress/zstd_ddict.c"
 #include "decompress/zstd_decompress.c"

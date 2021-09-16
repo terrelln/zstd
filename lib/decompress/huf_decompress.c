@@ -261,7 +261,7 @@ static size_t HUF_initRemainingDStream(BIT_DStream_t* bit, HUF_DecompressAsmArgs
 
     /* Construct the BIT_DStream_t. */
     bit->bitContainer = MEM_readLE64(args->ip[stream]);
-    bit->bitsConsumed = ZSTD_ctzll(args->bits[stream]);
+    bit->bitsConsumed = ZSTD_countTrailingZeros((size_t)args->bits[stream]);
     bit->start = (const char*)args->iend[0];
     bit->limitPtr = bit->start + sizeof(size_t);
     bit->ptr = (const char*)args->ip[stream];
