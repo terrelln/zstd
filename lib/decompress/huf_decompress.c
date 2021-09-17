@@ -43,14 +43,15 @@
 #error "Cannot force the use of the X1 and X2 decoders at the same time!"
 #endif
 
-/* Only use assembly with GNUC on Linux / Apple.
+/* Only use assembly on Linux / MacOS.
  * Disable when MSAN is enabled.
  */
-#if defined(__GNUC__) &&                                              \
-    !(defined(_MSC_VER) || defined(_WIN32)) &&                        \
-    (defined(__APPLE__) || defined(__linux__) || defined(__linux)) && \
-    !ZSTD_MEMORY_SANITIZER
-# define HUF_ASM_SUPPORTED 1
+#if defined(__linux__) || defined(__linux) || defined(__APPLE__)
+# if ZSTD_MEMORY_SANITIZER
+#  define HUF_ASM_SUPPORTED 0
+# else
+#  define HUF_ASM_SUPPORTED 1
+#endif
 #else
 # define HUF_ASM_SUPPORTED 0
 #endif
@@ -1003,11 +1004,10 @@ static void HUF_fillDTableX2(HUF_DEltX2* DTable, const U32 targetLog,
         int const end = (int)rankStart[w+1];
         U32 const nbBits = nbBitsBaseline - w;
 
-        assert(nbBits <= targetLog);
         if (targetLog-nbBits >= minBits) {
-            /* Enough room for a second symbol */
+            /* Enough room for a second symbol. */
             int start = rankVal[w];
-            int const length = 1 << (targetLog - nbBits);
+            U32 const length = 1u << ((targetLog - nbBits) & 0x1F /* quiet static-analyzer */);
             int minWeight = nbBits + scaleLog;
             int s;
             if (minWeight < 1) minWeight = 1;
