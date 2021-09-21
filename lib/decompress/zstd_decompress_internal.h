@@ -106,6 +106,13 @@ typedef struct {
     size_t ddictPtrCount;
 } ZSTD_DDictHashSet;
 
+typedef struct {
+    BYTE const* vLitPtr;
+    BYTE const* litEnd; // Can read WILDCOPY_OVERLENGTH beyond
+    BYTE const* extraLits;
+    size_t numExtraLits;
+} ZSTD_Literals;
+
 struct ZSTD_DCtx_s
 {
     const ZSTD_seqSymbol* LLTptr;
@@ -167,7 +174,8 @@ struct ZSTD_DCtx_s
     ZSTD_outBuffer expectedOutBuffer;
 
     /* workspace */
-    BYTE litBuffer[ZSTD_BLOCKSIZE_MAX + WILDCOPY_OVERLENGTH];
+    size_t extraLitSize;
+    BYTE extraLitBuffer[3 * WILDCOPY_OVERLENGTH];
     BYTE headerBuffer[ZSTD_FRAMEHEADERSIZE_MAX];
 
     size_t oversizedDuration;
