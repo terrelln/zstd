@@ -107,7 +107,7 @@ typedef struct {
 } ZSTD_DDictHashSet;
 
 #ifndef ZSTD_LITBUFFEREXTRASIZE
-#define ZSTD_LITBUFFEREXTRASIZE    16384 /* extra buffer reduces amount of dst required to store litBuffer */
+#define ZSTD_LITBUFFEREXTRASIZE    (1 << 17)
 #endif
 
 struct ZSTD_DCtx_s
