@@ -1415,87 +1415,145 @@ size_t ZSTD_RowFindBestMatch_generic (
     return ml;
 }
 
-/* Inlining is important to hardwire a hot branch (template emulation) */
-FORCE_INLINE_TEMPLATE size_t ZSTD_RowFindBestMatch_selectMLS (
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* const iLimit,
-                        const ZSTD_dictMode_e dictMode, size_t* offsetPtr, const U32 rowLog)
-{
-    switch(ms->cParams.minMatch)
-    {
-    default : /* includes case 3 */
-    case 4 : return ZSTD_RowFindBestMatch_generic(ms, ip, iLimit, offsetPtr, 4, dictMode, rowLog);
-    case 5 : return ZSTD_RowFindBestMatch_generic(ms, ip, iLimit, offsetPtr, 5, dictMode, rowLog);
-    case 7 :
-    case 6 : return ZSTD_RowFindBestMatch_generic(ms, ip, iLimit, offsetPtr, 6, dictMode, rowLog);
+#define GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_3(dictMode, mls, rowLog)                                       \
+    static size_t ZSTD_RowFindBestMatch_##dictMode##_##mls##_##rowLog(                                 \
+            ZSTD_matchState_t* ms,                                                                     \
+            const BYTE* ip, const BYTE* const iLimit,                                                  \
+            size_t* offsetPtr)                                                                         \
+    {                                                                                                  \
+        assert(MAX(4, MIN(6, ms->cParams.minMatch)) == mls);                                           \
+        assert(MAX(4, MIN(6, ms->cParams.searchLog)) == rowLog);                                       \
+        return ZSTD_RowFindBestMatch_generic(ms, ip, iLimit, offsetPtr, mls, ZSTD_##dictMode, rowLog); \
     }
-}
 
-FORCE_INLINE_TEMPLATE size_t ZSTD_RowFindBestMatch_selectRowLog (
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* const iLimit,
-                        size_t* offsetPtr)
-{
-    const U32 cappedSearchLog = MIN(ms->cParams.searchLog, 6);
-    switch(cappedSearchLog)
-    {
-    default :
-    case 4 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_noDict, offsetPtr, 4);
-    case 5 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_noDict, offsetPtr, 5);
-    case 6 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_noDict, offsetPtr, 6);
-    }
-}
+#define GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_2(dictMode, mls)  \
+    GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_3(dictMode, mls, 4)   \
+    GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_3(dictMode, mls, 5)   \
+    GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_3(dictMode, mls, 6)
 
-FORCE_INLINE_TEMPLATE size_t ZSTD_RowFindBestMatch_dictMatchState_selectRowLog(
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* const iLimit,
-                        size_t* offsetPtr)
-{
-    const U32 cappedSearchLog = MIN(ms->cParams.searchLog, 6);
-    switch(cappedSearchLog)
-    {
-    default :
-    case 4 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_dictMatchState, offsetPtr, 4);
-    case 5 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_dictMatchState, offsetPtr, 5);
-    case 6 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_dictMatchState, offsetPtr, 6);
-    }
-}
+#define GEN_ZSTD_ROW_FIND_BEST_MATCH_FN(dictMode)  \
+    GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_2(dictMode, 4) \
+    GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_2(dictMode, 5) \
+    GEN_ZSTD_ROW_FIND_BEST_MATCH_FN_2(dictMode, 6)
 
-FORCE_INLINE_TEMPLATE size_t ZSTD_RowFindBestMatch_dedicatedDictSearch_selectRowLog(
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* const iLimit,
-                        size_t* offsetPtr)
-{
-    const U32 cappedSearchLog = MIN(ms->cParams.searchLog, 6);
-    switch(cappedSearchLog)
-    {
-    default :
-    case 4 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_dedicatedDictSearch, offsetPtr, 4);
-    case 5 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_dedicatedDictSearch, offsetPtr, 5);
-    case 6 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_dedicatedDictSearch, offsetPtr, 6);
-    }
-}
-
-FORCE_INLINE_TEMPLATE size_t ZSTD_RowFindBestMatch_extDict_selectRowLog (
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* const iLimit,
-                        size_t* offsetPtr)
-{
-    const U32 cappedSearchLog = MIN(ms->cParams.searchLog, 6);
-    switch(cappedSearchLog)
-    {
-    default :
-    case 4 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_extDict, offsetPtr, 4);
-    case 5 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_extDict, offsetPtr, 5);
-    case 6 : return ZSTD_RowFindBestMatch_selectMLS(ms, ip, iLimit, ZSTD_extDict, offsetPtr, 6);
-    }
-}
-
+GEN_ZSTD_ROW_FIND_BEST_MATCH_FN(noDict)
+GEN_ZSTD_ROW_FIND_BEST_MATCH_FN(extDict)
+GEN_ZSTD_ROW_FIND_BEST_MATCH_FN(dictMatchState)
+GEN_ZSTD_ROW_FIND_BEST_MATCH_FN(dedicatedDictSearch)
 
 /* *******************************
 *  Common parser - lazy strategy
 *********************************/
 typedef enum { search_hashChain=0, search_binaryTree=1, search_rowHash=2 } searchMethod_e;
+
+typedef size_t (*searchMax_f)(
+                    ZSTD_matchState_t* ms,
+                    const BYTE* ip, const BYTE* iLimit, size_t* offsetPtr);
+
+
+static searchMax_f ZSTD_selectRowMatchFunction3(ZSTD_dictMode_e dictMode, U32 mls, U32 rowLog)
+{
+    const searchMax_f searchFuncs[4][3][3] = {
+        {
+            {
+                ZSTD_RowFindBestMatch_noDict_4_4,
+                ZSTD_RowFindBestMatch_noDict_4_5,
+                ZSTD_RowFindBestMatch_noDict_4_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_noDict_5_4,
+                ZSTD_RowFindBestMatch_noDict_5_5,
+                ZSTD_RowFindBestMatch_noDict_5_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_noDict_6_4,
+                ZSTD_RowFindBestMatch_noDict_6_5,
+                ZSTD_RowFindBestMatch_noDict_6_6,
+            },
+        },
+        {
+            {
+                ZSTD_RowFindBestMatch_extDict_4_4,
+                ZSTD_RowFindBestMatch_extDict_4_5,
+                ZSTD_RowFindBestMatch_extDict_4_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_extDict_5_4,
+                ZSTD_RowFindBestMatch_extDict_5_5,
+                ZSTD_RowFindBestMatch_extDict_5_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_extDict_6_4,
+                ZSTD_RowFindBestMatch_extDict_6_5,
+                ZSTD_RowFindBestMatch_extDict_6_6,
+            },
+        },
+        {
+            {
+                ZSTD_RowFindBestMatch_dictMatchState_4_4,
+                ZSTD_RowFindBestMatch_dictMatchState_4_5,
+                ZSTD_RowFindBestMatch_dictMatchState_4_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_dictMatchState_5_4,
+                ZSTD_RowFindBestMatch_dictMatchState_5_5,
+                ZSTD_RowFindBestMatch_dictMatchState_5_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_dictMatchState_6_4,
+                ZSTD_RowFindBestMatch_dictMatchState_6_5,
+                ZSTD_RowFindBestMatch_dictMatchState_6_6,
+            },
+        },
+        {
+            {
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_4_4,
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_4_5,
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_4_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_5_4,
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_5_5,
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_5_6,
+            },
+            {
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_6_4,
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_6_5,
+                ZSTD_RowFindBestMatch_dedicatedDictSearch_6_6,
+            },
+        },
+    };
+    return searchFuncs[dictMode][mls - 4][rowLog - 4];
+}
+
+static searchMax_f ZSTD_selectMatchFunction(ZSTD_matchState_t const* ms, searchMethod_e searchMethod, ZSTD_dictMode_e dictMode)
+{
+    if (searchMethod != search_rowHash) {
+        const searchMax_f searchFuncs[4][2] = {
+            {
+                ZSTD_HcFindBestMatch_selectMLS,
+                ZSTD_BtFindBestMatch_selectMLS,
+            },
+            {
+                ZSTD_HcFindBestMatch_extDict_selectMLS,
+                ZSTD_BtFindBestMatch_extDict_selectMLS,
+            },
+            {
+                ZSTD_HcFindBestMatch_dictMatchState_selectMLS,
+                ZSTD_BtFindBestMatch_dictMatchState_selectMLS,
+            },
+            {
+                ZSTD_HcFindBestMatch_dedicatedDictSearch_selectMLS,
+                NULL,
+            }
+        };
+        return searchFuncs[dictMode][(int)searchMethod];
+    } else {
+        U32 const rowLog = MAX(4, MIN(6, ms->cParams.searchLog));
+        U32 const mls = MAX(4, MIN(6, ms->cParams.minMatch));
+        return ZSTD_selectRowMatchFunction3(dictMode, mls, rowLog);
+    }
+}
 
 FORCE_INLINE_TEMPLATE size_t
 ZSTD_compressBlock_lazy_generic(
@@ -1515,9 +1573,6 @@ ZSTD_compressBlock_lazy_generic(
     const BYTE* const prefixLowest = base + prefixLowestIndex;
     const U32 rowLog = ms->cParams.searchLog < 5 ? 4 : 5;
 
-    typedef size_t (*searchMax_f)(
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* iLimit, size_t* offsetPtr);
 
     /**
      * This table is indexed first by the four ZSTD_dictMode_e values, and then
@@ -1525,30 +1580,8 @@ ZSTD_compressBlock_lazy_generic(
      * that should never occur (extDict modes go to the other implementation
      * below and there is no DDSS for binary tree search yet).
      */
-    const searchMax_f searchFuncs[4][3] = {
-        {
-            ZSTD_HcFindBestMatch_selectMLS,
-            ZSTD_BtFindBestMatch_selectMLS,
-            ZSTD_RowFindBestMatch_selectRowLog
-        },
-        {
-            NULL,
-            NULL,
-            NULL
-        },
-        {
-            ZSTD_HcFindBestMatch_dictMatchState_selectMLS,
-            ZSTD_BtFindBestMatch_dictMatchState_selectMLS,
-            ZSTD_RowFindBestMatch_dictMatchState_selectRowLog
-        },
-        {
-            ZSTD_HcFindBestMatch_dedicatedDictSearch_selectMLS,
-            NULL,
-            ZSTD_RowFindBestMatch_dedicatedDictSearch_selectRowLog
-        }
-    };
 
-    searchMax_f const searchMax = searchFuncs[dictMode][(int)searchMethod];
+    searchMax_f const searchMax = ZSTD_selectMatchFunction(ms, searchMethod, dictMode);
     U32 offset_1 = rep[0], offset_2 = rep[1], savedOffset=0;
 
     const int isDMS = dictMode == ZSTD_dictMatchState;
@@ -1939,15 +1972,7 @@ size_t ZSTD_compressBlock_lazy_extDict_generic(
     const U32 windowLog = ms->cParams.windowLog;
     const U32 rowLog = ms->cParams.searchLog < 5 ? 4 : 5;
 
-    typedef size_t (*searchMax_f)(
-                        ZSTD_matchState_t* ms,
-                        const BYTE* ip, const BYTE* iLimit, size_t* offsetPtr);
-    const searchMax_f searchFuncs[3] = {
-        ZSTD_HcFindBestMatch_extDict_selectMLS,
-        ZSTD_BtFindBestMatch_extDict_selectMLS,
-        ZSTD_RowFindBestMatch_extDict_selectRowLog
-    };
-    searchMax_f searchMax = searchFuncs[(int)searchMethod];
+    searchMax_f searchMax = ZSTD_selectMatchFunction(ms, searchMethod, ZSTD_extDict);
     U32 offset_1 = rep[0], offset_2 = rep[1];
 
     DEBUGLOG(5, "ZSTD_compressBlock_lazy_extDict_generic (searchFunc=%u)", (U32)searchMethod);
