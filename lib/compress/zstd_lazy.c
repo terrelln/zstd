@@ -11,6 +11,18 @@
 #include "zstd_compress_internal.h"
 #include "zstd_lazy.h"
 
+/*-*************************************
+*  Helpers
+***************************************/
+
+static U32 ZSTD_getMLS(U32 minMatch)
+{
+    return MAX(4, MIN(6, minMatch));
+}
+
+static U32 ZSTD_getRowLog(U32 searchLog) {
+    return MAX(4, MIN(6, searchLog));
+}
 
 /*-*************************************
 *  Binary Tree search
@@ -640,7 +652,7 @@ FORCE_INLINE_TEMPLATE U32 ZSTD_insertAndFindFirstIndex_internal(
 
 U32 ZSTD_insertAndFindFirstIndex(ZSTD_matchState_t* ms, const BYTE* ip) {
     const ZSTD_compressionParameters* const cParams = &ms->cParams;
-    return ZSTD_insertAndFindFirstIndex_internal(ms, cParams, ip, ms->cParams.minMatch);
+    return ZSTD_insertAndFindFirstIndex_internal(ms, cParams, ip, ZSTD_getMLS(ms->cParams.minMatch));
 }
 
 /* inlining is important to hardwire a hot branch (template emulation) */
@@ -974,9 +986,9 @@ FORCE_INLINE_TEMPLATE void ZSTD_row_update_internal(ZSTD_matchState_t* ms, const
  * processing.
  */
 void ZSTD_row_update(ZSTD_matchState_t* const ms, const BYTE* ip) {
-    const U32 rowLog = MAX(MIN(ms->cParams.searchLog, 6), 4);
+    const U32 rowLog = ZSTD_getRowLog(ms->cParams.searchLog);
     const U32 rowMask = (1u << rowLog) - 1;
-    const U32 mls = MIN(ms->cParams.minMatch, 6 /* mls caps out at 6 */);
+    const U32 mls = ZSTD_getMLS(ms->cParams.minMatch);
 
     DEBUGLOG(5, "ZSTD_row_update(), rowLog=%u", rowLog);
     ZSTD_row_update_internal(ms, ip, mls, rowLog, rowMask, 0 /* dont use cache */);
@@ -1339,7 +1351,7 @@ typedef struct {
             const BYTE* ip, const BYTE* const iLimit,                                 \
             size_t* offsetPtr)                                                        \
     {                                                                                 \
-        assert(MAX(4, MIN(6, ms->cParams.minMatch)) == mls);                          \
+        assert(ZSTD_getMLS(ms->cParams.minMatch)) == mls);                            \
         return ZSTD_BtFindBestMatch(ms, ip, iLimit, offsetPtr, mls, ZSTD_##dictMode); \
     }                                                                                 \
     static const ZSTD_LazyVTable ZSTD_BtVTable_##dictMode##_##mls = {                 \
@@ -1352,7 +1364,7 @@ typedef struct {
             const BYTE* ip, const BYTE* const iLimit,                                 \
             size_t* offsetPtr)                                                        \
     {                                                                                 \
-        assert(MAX(4, MIN(6, ms->cParams.minMatch)) == mls);                          \
+        assert(ZSTD_getMLS(ms->cParams.minMatch)) == mls);                            \
         return ZSTD_HcFindBestMatch(ms, ip, iLimit, offsetPtr, mls, ZSTD_##dictMode); \
     }                                                                                 \
     static const ZSTD_LazyVTable ZSTD_HcVTable_##dictMode##_##mls = {                 \
@@ -1365,8 +1377,8 @@ typedef struct {
             const BYTE* ip, const BYTE* const iLimit,                                          \
             size_t* offsetPtr)                                                                 \
     {                                                                                          \
-        assert(MAX(4, MIN(6, ms->cParams.minMatch)) == mls);                                   \
-        assert(MAX(4, MIN(6, ms->cParams.searchLog)) == rowLog);                               \
+        assert(ZSTD_getMLS(ms->cParams.minMatch)) == mls);                                     \
+        assert(ZSTD_getRowLog(ms->cParams.searchLog)) == rowLog);                              \
         return ZSTD_RowFindBestMatch(ms, ip, iLimit, offsetPtr, mls, ZSTD_##dictMode, rowLog); \
     }                                                                                          \
     static const ZSTD_LazyVTable ZSTD_RowVTable_##dictMode##_##mls##_##rowLog = {              \
@@ -1451,8 +1463,8 @@ static ZSTD_LazyVTable const* ZSTD_selectLazyVTable(ZSTD_matchState_t const* ms,
     /* Fill the Row VTable array with the right functions for the (dictMode, mls, rowLog) combination. */
     ZSTD_LazyVTable const* const rowVTables[4][3][3] = GEN_ZSTD_VTABLE_ARRAY(GEN_ZSTD_ROW_VTABLE_ARRAY);
 
-    U32 const mls = MAX(4, MIN(6, ms->cParams.minMatch));
-    U32 const rowLog = MAX(4, MIN(6, ms->cParams.searchLog));
+    U32 const mls = ZSTD_getMLS(ms->cParams.minMatch);
+    U32 const rowLog = ZSTD_getRowLog(ms->cParams.searchLog);
     switch (searchMethod) {
         case search_hashChain:
             return hcVTables[dictMode][mls - 4];
@@ -1481,7 +1493,7 @@ ZSTD_compressBlock_lazy_generic(
     const BYTE* const base = ms->window.base;
     const U32 prefixLowestIndex = ms->window.dictLimit;
     const BYTE* const prefixLowest = base + prefixLowestIndex;
-    const U32 rowLog = ms->cParams.searchLog < 5 ? 4 : 5;
+    const U32 rowLog = ZSTD_getRowLog(ms->cParams.searchLog);
 
 
     /**
@@ -1527,7 +1539,7 @@ ZSTD_compressBlock_lazy_generic(
 
     if (searchMethod == search_rowHash) {
         ZSTD_row_fillHashCache(ms, base, rowLog,
-                            MIN(ms->cParams.minMatch, 6 /* mls caps out at 6 */),
+                            ZSTD_getMLS(ms->cParams.minMatch),
                             ms->nextToUpdate, ilimit);
     }
 
@@ -1880,7 +1892,7 @@ size_t ZSTD_compressBlock_lazy_extDict_generic(
     const BYTE* const dictEnd  = dictBase + dictLimit;
     const BYTE* const dictStart  = dictBase + ms->window.lowLimit;
     const U32 windowLog = ms->cParams.windowLog;
-    const U32 rowLog = ms->cParams.searchLog < 5 ? 4 : 5;
+    const U32 rowLog = ZSTD_getRowLog(ms->cParams.searchLog);
 
     searchMax_f const searchMax = ZSTD_selectLazyVTable(ms, searchMethod, ZSTD_extDict)->searchMax;
     U32 offset_1 = rep[0], offset_2 = rep[1];
@@ -1891,7 +1903,7 @@ size_t ZSTD_compressBlock_lazy_extDict_generic(
     ip += (ip == prefixStart);
     if (searchMethod == search_rowHash) {
         ZSTD_row_fillHashCache(ms, base, rowLog,
-                               MIN(ms->cParams.minMatch, 6 /* mls caps out at 6 */),
+                               ZSTD_getMLS(ms->cParams.minMatch),
                                ms->nextToUpdate, ilimit);
     }
 
