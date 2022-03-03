@@ -92,6 +92,7 @@ struct ZSTD_CDict_s {
 
 ZSTD_CCtx* ZSTD_createCCtx(void)
 {
+    clearDictUses();
     return ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
 }
 
@@ -175,6 +176,7 @@ static void ZSTD_freeCCtxContent(ZSTD_CCtx* cctx)
 
 size_t ZSTD_freeCCtx(ZSTD_CCtx* cctx)
 {
+    writeDictUses(cctx->blockState.matchState.dictMatchState);
     if (cctx==NULL) return 0;   /* support free on NULL */
     RETURN_ERROR_IF(cctx->staticSize, memory_allocation,
                     "not compatible with static CCtx");

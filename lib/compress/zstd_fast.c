@@ -11,7 +11,71 @@
 #include "zstd_compress_internal.h"  /* ZSTD_hashPtr, ZSTD_count, ZSTD_storeSeq */
 #include "zstd_fast.h"
 
+#ifdef ZSTD_USE_DICT
+#include <stdio.h>
 
+static uint32_t sortedDictPos[128 * 1024] = {};
+static size_t loadDictPos(void)
+{
+    FILE* f = fopen("dict-uses.u32", "rb");
+    assert(f);
+    {
+        size_t const nbPos = fread(sortedDictPos, sizeof(sortedDictPos[0]), 128 * 1024, f);
+        assert(nbPos > 0);
+        fclose(f);
+        return nbPos;
+    }
+}
+
+void ZSTD_fillHashTable(ZSTD_matchState_t* ms,
+                        const void* const end,
+                        ZSTD_dictTableLoadMethod_e dtlm)
+{
+    const ZSTD_compressionParameters* const cParams = &ms->cParams;
+    U32* const hashTable = ms->hashTable;
+    U32  const hBits = cParams->hashLog;
+    U32  const mls = cParams->minMatch;
+    const BYTE* const base = ms->window.base;
+    const BYTE* const dictStart = base + ms->window.dictLimit;
+    const BYTE* const dictEnd = ms->window.nextSrc;
+    const BYTE* const iend = ((const BYTE*)end) - HASH_READ_SIZE;
+
+    {
+        const BYTE* ip = base + ms->nextToUpdate;
+        const U32 fastHashFillStep = 3;
+        for ( ; ip + fastHashFillStep < iend + 2; ip += fastHashFillStep) {
+            U32 const curr = (U32)(ip - base);
+            size_t const hash0 = ZSTD_hashPtr(ip, hBits, mls);
+            hashTable[hash0] = curr;
+            if (dtlm == ZSTD_dtlm_fast) continue;
+            /* Only load extra positions for ZSTD_dtlm_full */
+            {   U32 p;
+                for (p = 1; p < fastHashFillStep; ++p) {
+                    size_t const hash = ZSTD_hashPtr(ip + p, hBits, mls);
+                    if (hashTable[hash] == 0) {  /* not yet filled */
+                        hashTable[hash] = curr + p;
+        }   }   }   }
+    }
+
+    size_t const nbPos = loadDictPos();
+    size_t i;
+
+    assert(ms->window.dictLimit == ms->nextToUpdate);
+
+    for (i = 0; i < nbPos; ++i) {
+        U32 pos = sortedDictPos[i];
+        BYTE const* const ip = dictStart + pos;
+        U32 const curr = (U32)(ip - base);
+        assert(ip < iend);
+        assert(ip < dictEnd);
+        {
+            size_t const hash = ZSTD_hashPtr(ip, hBits, mls);
+            hashTable[hash] = curr;
+        }
+    }
+    (void)dtlm;
+}
+#else
 void ZSTD_fillHashTable(ZSTD_matchState_t* ms,
                         const void* const end,
                         ZSTD_dictTableLoadMethod_e dtlm)
@@ -41,6 +105,8 @@ void ZSTD_fillHashTable(ZSTD_matchState_t* ms,
                     hashTable[hash] = curr + p;
     }   }   }   }
 }
+#endif
+
 
 
 /**
@@ -368,6 +434,97 @@ size_t ZSTD_compressBlock_fast(
     }
 }
 
+#ifdef ZSTD_DICT_USES
+static uint32_t dictPosUses[128 * 1024] = {};
+static uint32_t sortedDictPos[128 * 1024] = {};
+
+static void markDictIndexUsed(U32 dictStartIndex, U32 dictIndex)
+{
+    ++dictPosUses[dictIndex - dictStartIndex];
+}
+
+static void markRepIndexUsed(U32 dictStartIndex, U32 index, U32 dictIndexDelta, U32 prefixStartIndex)
+{
+    if (index < prefixStartIndex)
+        ++dictPosUses[(index - dictIndexDelta) - dictStartIndex];
+}
+
+static int orderDictPos(void const* lhs, void const* rhs)
+{
+    uint32_t const lhsIndex = *(uint32_t const*)lhs;
+    uint32_t const rhsIndex = *(uint32_t const*)rhs;
+    uint32_t const lhsCount = dictPosUses[lhsIndex];
+    uint32_t const rhsCount = dictPosUses[rhsIndex];
+    if (lhsCount < rhsCount)
+        return -1;
+    if (lhsCount > rhsCount)
+        return 1;
+    else if (lhsIndex < rhsIndex)
+        return -1;
+    else {
+        assert(lhsIndex > rhsIndex);
+        return 1;
+    }
+}
+
+#include <stdlib.h>
+#include <stdio.h>
+
+void clearDictUses(void)
+{
+    DEBUGLOG(2, "clear dict pos uses");
+    ZSTD_memset(dictPosUses, 0, sizeof(dictPosUses));
+}
+
+void writeDictUses(ZSTD_matchState_t const* dms) {
+    U32 const dictStartIndex = dms->window.dictLimit;
+    BYTE const* const dictStart = dms->window.base + dictStartIndex;
+    BYTE const* const dictEnd = dms->window.nextSrc;
+    U32 const dictSize = (U32)(dictEnd - dictStart);
+    DEBUGLOG(2, "hashTableSize = %u", 1u << dms->cParams.hashLog);
+    DEBUGLOG(2, "dictStartIndex = %u", dictStartIndex);
+    DEBUGLOG(2, "dictSize = %u", dictSize);
+    {
+        U32 used = 0;
+        U32 i;
+        for (i = 0; i < dictSize; ++i) {
+            if (dictPosUses[i] > 0)
+                ++used;
+            sortedDictPos[i] = i;
+        }
+        DEBUGLOG(2, "usedPos = %u", used);
+        qsort(sortedDictPos, dictSize, sizeof(sortedDictPos[0]), &orderDictPos);
+        assert(dictPosUses[sortedDictPos[dictSize - 1]] > dictPosUses[sortedDictPos[0]]);
+    }
+    {
+        U32 startPos;
+        for (startPos = 0; dictPosUses[sortedDictPos[startPos]] == 0; ++startPos) {}
+        FILE* f = fopen("dict-uses.u32", "wb");
+        DEBUGLOG(2, "startPos = %u", startPos);
+        size_t const w = fwrite(sortedDictPos + startPos, sizeof(sortedDictPos[0]), dictSize - startPos, f);
+        assert(f);
+        assert(w == dictSize - startPos);
+        fclose(f);
+    }
+}
+#else
+void clearDictUses(void)
+{
+
+}
+void writeDictUses(ZSTD_matchState_t const* dms) {
+    (void)dms;
+}
+static void markDictIndexUsed(U32 dictStartIndex, U32 dictIndex)
+{
+    (void)dictStartIndex, (void)dictIndex;
+}
+static void markRepIndexUsed(U32 dictStartIndex, U32 index, U32 dictIndexDelta, U32 prefixStartIndex)
+{
+    (void)dictStartIndex, (void)index, (void)dictIndexDelta, (void)prefixStartIndex;
+}
+#endif
+
 FORCE_INLINE_TEMPLATE
 size_t ZSTD_compressBlock_fast_dictMatchState_generic(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
@@ -439,6 +596,7 @@ size_t ZSTD_compressBlock_fast_dictMatchState_generic(
             const BYTE* const repMatchEnd = repIndex < prefixStartIndex ? dictEnd : iend;
             mLength = ZSTD_count_2segments(ip+1+4, repMatch+4, iend, repMatchEnd, prefixStart) + 4;
             ip++;
+            markRepIndexUsed(dictStartIndex, repIndex, dictIndexDelta, prefixStartIndex);
             ZSTD_storeSeq(seqStore, (size_t)(ip-anchor), anchor, iend, REPCODE1_TO_OFFBASE, mLength);
         } else if ( (matchIndex <= prefixStartIndex) ) {
             size_t const dictHash = ZSTD_hashPtr(ip, dictHLog, mls);
@@ -459,6 +617,7 @@ size_t ZSTD_compressBlock_fast_dictMatchState_generic(
                 } /* catch up */
                 offset_2 = offset_1;
                 offset_1 = offset;
+                markDictIndexUsed(dictStartIndex, dictMatchIndex);
                 ZSTD_storeSeq(seqStore, (size_t)(ip-anchor), anchor, iend, OFFSET_TO_OFFBASE(offset), mLength);
             }
         } else if (MEM_read32(match) != MEM_read32(ip)) {
@@ -499,6 +658,7 @@ size_t ZSTD_compressBlock_fast_dictMatchState_generic(
                     const BYTE* const repEnd2 = repIndex2 < prefixStartIndex ? dictEnd : iend;
                     size_t const repLength2 = ZSTD_count_2segments(ip+4, repMatch2+4, iend, repEnd2, prefixStart) + 4;
                     U32 tmpOffset = offset_2; offset_2 = offset_1; offset_1 = tmpOffset;   /* swap offset_2 <=> offset_1 */
+                    markRepIndexUsed(dictStartIndex, repIndex2, dictIndexDelta, prefixStartIndex);
                     ZSTD_storeSeq(seqStore, 0, anchor, iend, REPCODE1_TO_OFFBASE, repLength2);
                     hashTable[ZSTD_hashPtr(ip, hlog, mls)] = current2;
                     ip += repLength2;
