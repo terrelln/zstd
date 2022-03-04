@@ -228,6 +228,7 @@ struct ZSTD_matchState_t {
 
     U32 forceNonContiguous; /* Non-zero if we should force non-contiguous load for the next window update. */
 
+    int ddsFast;
     int dedicatedDictSearch;  /* Indicates whether this matchState is using the
                                * dedicated dictionary search structure.
                                */
