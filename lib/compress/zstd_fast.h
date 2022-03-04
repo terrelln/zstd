@@ -23,6 +23,8 @@ void writeDictUses(ZSTD_matchState_t const* dms);
 
 void ZSTD_fillHashTable(ZSTD_matchState_t* ms,
                         void const* end, ZSTD_dictTableLoadMethod_e dtlm);
+void ZSTD_fillHashTableDDS(ZSTD_matchState_t* ms,
+                        const void* const end);
 size_t ZSTD_compressBlock_fast(
         ZSTD_matchState_t* ms, seqStore_t* seqStore, U32 rep[ZSTD_REP_NUM],
         void const* src, size_t srcSize);

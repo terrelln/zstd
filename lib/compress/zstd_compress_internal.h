@@ -228,6 +228,8 @@ struct ZSTD_matchState_t {
 
     U32 forceNonContiguous; /* Non-zero if we should force non-contiguous load for the next window update. */
 
+    int ddsFast;
+    int dictIsCold;
     int dedicatedDictSearch;  /* Indicates whether this matchState is using the
                                * dedicated dictionary search structure.
                                */
@@ -384,6 +386,8 @@ struct ZSTD_CCtx_s {
     SeqCollector seqCollector;
     int isFirstBlock;
     int initialized;
+
+    void const* prevCDict;
 
     seqStore_t seqStore;      /* sequences storage ptrs */
     ldmState_t ldmState;      /* long distance matching state */

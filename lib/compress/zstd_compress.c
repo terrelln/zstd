@@ -2027,7 +2027,7 @@ static int ZSTD_shouldAttachDict(const ZSTD_CDict* cdict,
                                  U64 pledgedSrcSize)
 {
     size_t cutoff = attachDictSizeCutoffs[cdict->matchState.cParams.strategy];
-    int const dedicatedDictSearch = cdict->matchState.dedicatedDictSearch;
+    int const dedicatedDictSearch = cdict->matchState.dedicatedDictSearch || cdict->matchState.ddsFast;
     return dedicatedDictSearch
         || ( ( pledgedSrcSize <= cutoff
             || pledgedSrcSize == ZSTD_CONTENTSIZE_UNKNOWN
@@ -2089,6 +2089,16 @@ ZSTD_resetCCtx_byAttachingCDict(ZSTD_CCtx* cctx,
             cctx->blockState.matchState.loadedDictEnd = cctx->blockState.matchState.window.dictLimit;
     }   }
 
+
+    // This is wrong... Don't copy this...
+    // But it works for now...
+    // It is inefficient if the dictionary is in L3,
+    // but works well when it is in RAM.
+    if (cctx->prevCDict != cdict)
+        cctx->blockState.matchState.dictIsCold = 1;
+    else
+        cctx->blockState.matchState.dictIsCold = 0;
+    cctx->prevCDict = cdict;
     cctx->dictID = cdict->dictID;
     cctx->dictContentSize = cdict->dictContentSize;
 
@@ -4234,6 +4244,19 @@ static size_t ZSTD_loadDictionaryContent(ZSTD_matchState_t* ms,
         }
     }
 
+    if (params->cParams.strategy == ZSTD_fast) {
+        ms->ddsFast = 1;
+        size_t const maxSize = (1 << 16) - 2;
+        if (srcSize > maxSize) {
+            size_t const delta = srcSize - maxSize;
+            src = (uint8_t const*)src + delta;
+            srcSize -= delta;
+        }
+        assert(srcSize <= maxSize);
+    } else {
+        ms->ddsFast = 0;
+    }
+
     DEBUGLOG(4, "ZSTD_loadDictionaryContent(): useRowMatchFinder=%d", (int)params->useRowMatchFinder);
     ZSTD_window_update(&ms->window, src, srcSize, /* forceNonContiguous */ 0);
     ms->loadedDictEnd = params->forceWindow ? 0 : (U32)(iend - ms->window.base);
@@ -4254,7 +4277,10 @@ static size_t ZSTD_loadDictionaryContent(ZSTD_matchState_t* ms,
     switch(params->cParams.strategy)
     {
     case ZSTD_fast:
-        ZSTD_fillHashTable(ms, iend, dtlm);
+        if (ms->ddsFast)
+            ZSTD_fillHashTableDDS(ms, iend);
+        else
+            ZSTD_fillHashTable(ms, iend, dtlm);
         break;
     case ZSTD_dfast:
         ZSTD_fillDoubleHashTable(ms, iend, dtlm);
