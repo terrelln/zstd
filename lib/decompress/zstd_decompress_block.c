@@ -1588,9 +1588,18 @@ size_t ZSTD_DStream_readBits(ZSTD_DStream_t* bits, size_t nbBits) {
     return ret;
 }
 
+#include <immintrin.h>
+
 FORCE_INLINE_TEMPLATE BMI2_TARGET_ATTRIBUTE
-size_t ZSTD_DStream_readBitsSlow(ZSTD_DStream_t* bits, size_t nbBits) {
+U32 ZSTD_DStream_readBitsSlow(ZSTD_DStream_t* bits, size_t nbBits) {
+#if 1
     size_t const ret = nbBits == 0 ? 0 : (bits->bitContainer >> (64 - nbBits));
+#elif 0
+    U32 ret = (bits->bitContainer >> (64 - nbBits));
+    ret = _bzhi_u32(ret, nbBits);
+#else
+    U32 ret = (bits->bitContainer >> 32) >> (32 - nbBits);
+#endif
     // assert((int)nbBits <= (63 - __builtin_ctzll(bits->bitContainer)));
     bits->bitContainer <<= nbBits;
     return ret;
