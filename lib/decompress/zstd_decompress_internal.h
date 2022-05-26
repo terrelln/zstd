@@ -108,7 +108,7 @@ typedef struct {
 } ZSTD_DDictHashSet;
 
 #ifndef ZSTD_DECODER_INTERNAL_BUFFER
-#  define ZSTD_DECODER_INTERNAL_BUFFER  (1 << 16)
+#  define ZSTD_DECODER_INTERNAL_BUFFER  (1 << 17)
 #endif
 
 #define ZSTD_LBMIN 64
