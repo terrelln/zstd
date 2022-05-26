@@ -420,7 +420,7 @@ static const ZSTD_seqSymbol ML_defaultDTable[(1<<ML_DEFAULTNORMLOG)+1] = {
 };   /* ML_defaultDTable */
 
 
-static void ZSTD_buildSeqTable_rle(ZSTD_seqSymbol* dt, U32 baseValue, U8 nbAddBits)
+static void ZSTD_buildSeqTable_rle(ZSTD_seqSymbol* dt, U32 baseValue, BYTE nbAddBits)
 {
     void* ptr = dt;
     ZSTD_seqSymbol_header* const DTableH = (ZSTD_seqSymbol_header*)ptr;
@@ -444,7 +444,7 @@ static void ZSTD_buildSeqTable_rle(ZSTD_seqSymbol* dt, U32 baseValue, U8 nbAddBi
 FORCE_INLINE_TEMPLATE
 void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
             const short* normalizedCounter, unsigned maxSymbolValue,
-            const U32* baseValue, const U8* nbAdditionalBits,
+            const U32* baseValue, const BYTE* nbAdditionalBits,
             unsigned tableLog, void* wksp, size_t wkspSize)
 {
     ZSTD_seqSymbol* const tableDecode = dt+1;
@@ -564,7 +564,7 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
 /* Avoids the FORCE_INLINE of the _body() function. */
 static void ZSTD_buildFSETable_body_default(ZSTD_seqSymbol* dt,
             const short* normalizedCounter, unsigned maxSymbolValue,
-            const U32* baseValue, const U8* nbAdditionalBits,
+            const U32* baseValue, const BYTE* nbAdditionalBits,
             unsigned tableLog, void* wksp, size_t wkspSize)
 {
     ZSTD_buildFSETable_body(dt, normalizedCounter, maxSymbolValue,
@@ -574,7 +574,7 @@ static void ZSTD_buildFSETable_body_default(ZSTD_seqSymbol* dt,
 #if DYNAMIC_BMI2
 BMI2_TARGET_ATTRIBUTE static void ZSTD_buildFSETable_body_bmi2(ZSTD_seqSymbol* dt,
             const short* normalizedCounter, unsigned maxSymbolValue,
-            const U32* baseValue, const U8* nbAdditionalBits,
+            const U32* baseValue, const BYTE* nbAdditionalBits,
             unsigned tableLog, void* wksp, size_t wkspSize)
 {
     ZSTD_buildFSETable_body(dt, normalizedCounter, maxSymbolValue,
@@ -584,7 +584,7 @@ BMI2_TARGET_ATTRIBUTE static void ZSTD_buildFSETable_body_bmi2(ZSTD_seqSymbol* d
 
 void ZSTD_buildFSETable(ZSTD_seqSymbol* dt,
             const short* normalizedCounter, unsigned maxSymbolValue,
-            const U32* baseValue, const U8* nbAdditionalBits,
+            const U32* baseValue, const BYTE* nbAdditionalBits,
             unsigned tableLog, void* wksp, size_t wkspSize, int bmi2)
 {
 #if DYNAMIC_BMI2
@@ -606,7 +606,7 @@ void ZSTD_buildFSETable(ZSTD_seqSymbol* dt,
 static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymbol** DTablePtr,
                                  symbolEncodingType_e type, unsigned max, U32 maxLog,
                                  const void* src, size_t srcSize,
-                                 const U32* baseValue, const U8* nbAdditionalBits,
+                                 const U32* baseValue, const BYTE* nbAdditionalBits,
                                  const ZSTD_seqSymbol* defaultTable, U32 flagRepeatTable,
                                  int ddictIsCold, int nbSeq, U32* wksp, size_t wkspSize,
                                  int bmi2)
@@ -618,7 +618,7 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
         RETURN_ERROR_IF((*(const BYTE*)src) > max, corruption_detected, "");
         {   U32 const symbol = *(const BYTE*)src;
             U32 const baseline = baseValue[symbol];
-            U8 const nbBits = nbAdditionalBits[symbol];
+            BYTE const nbBits = nbAdditionalBits[symbol];
             ZSTD_buildSeqTable_rle(DTableSpace, baseline, nbBits);
         }
         *DTablePtr = DTableSpace;
@@ -1652,8 +1652,10 @@ size_t ZSTD_DStream_reloadEnd(ZSTD_DStream_t* bits)
             bits->bitContainer <<= 1;
             bits->bitContainer |= 1;
             bits->ptr = bits->start;
-            size_t const nbBitsLeftover = nbBitsConsumed - (8 * nbBytesConsumed + 1);
-            bits->bitContainer <<= nbBitsLeftover;
+            {
+                size_t const nbBitsLeftover = nbBitsConsumed - (8 * nbBytesConsumed + 1);
+                bits->bitContainer <<= nbBitsLeftover;
+            }
         }
     }
 
@@ -1674,18 +1676,22 @@ static size_t ZSTD_DStream_isEmpty(ZSTD_DStream_t const* bits)
 }
 
 typedef struct {
+    uint8_t u8;
+} MyU8;
+
+typedef struct {
     ZSTD_entropyDTables_t* entropy;
     ZSTD_DStream_t bitd;
     size_t llState;
     size_t mlState;
     size_t ofState;
-    uint8_t* op;
-    uint8_t* oLimit;
-    uint8_t* oEnd;
-    uint8_t const* lits;
-    uint8_t const* litsLimit;
-    uint8_t const* litsEnd;
-    uint8_t const* prefixStart;
+    MyU8* op;
+    MyU8* oLimit;
+    MyU8* oEnd;
+    MyU8 const* lits;
+    MyU8 const* litsLimit;
+    MyU8 const* litsEnd;
+    MyU8 const* prefixStart;
     uint32_t savedOffset;
     uint32_t savedLitLen;
     uint32_t savedMatchLen;
@@ -1713,7 +1719,7 @@ U32 ZSTD_decodeOffset(ZSTD_DecompressSequences_Registers* ctx, ZSTD_seqSymbol of
 
 #define ZSTD_MAX_SEQ_BITS (64 - 7 - 2)
 
-static BMI2_TARGET_ATTRIBUTE size_t
+FORCE_INLINE_TEMPLATE BMI2_TARGET_ATTRIBUTE size_t
 ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
 {
     size_t nbSeq = 0;
@@ -1738,10 +1744,10 @@ ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
         DEBUGLOG(2, "body bits: ll=%u ml=%u off=%u", llDInfo.nbAdditionalBits, mlDInfo.nbAdditionalBits, ofDInfo.nbAdditionalBits);
         DEBUGLOG(2, "body seq: pos=%zu ll=%u ml=%u off=%u", (size_t)(ctx->op - ctx->prefixStart), litLen, matchLen, offset);
         {
-            BYTE const* const iLitEnd = ctx->lits + litLen;
-            BYTE* const oLitEnd = ctx->op + litLen;
-            BYTE* const oSeqEnd = oLitEnd + matchLen;
-            BYTE const* const match = oLitEnd - offset;
+            MyU8 const* const iLitEnd = ctx->lits + litLen;
+            MyU8* const oLitEnd = ctx->op + litLen;
+            MyU8* const oSeqEnd = oLitEnd + matchLen;
+            MyU8 const* const match = oLitEnd - offset;
 
             if (UNLIKELY((iLitEnd > ctx->litsLimit) | (oSeqEnd > ctx->oLimit) | (match < ctx->prefixStart))) {
                 DEBUGLOG(2, "(%d | %d | %d)", (iLitEnd > ctx->litsLimit), (oSeqEnd > ctx->oLimit), (match < ctx->prefixStart));
@@ -1768,11 +1774,12 @@ ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
             if (LIKELY(offset >= WILDCOPY_VECLEN)) {
                 ZSTD_wildcopy(ctx->op, match, (ptrdiff_t)matchLen, ZSTD_no_overlap);
             } else {
-                const BYTE* spreadMatch = match;
-                ZSTD_overlapCopy8(&ctx->op, &spreadMatch, offset);
+                BYTE* op = &ctx->op->u8;
+                const BYTE* spreadMatch = &match->u8;
+                ZSTD_overlapCopy8(&op, &spreadMatch, offset);
                 if (matchLen > 8) {
-                    assert(ctx->op < oSeqEnd);
-                    ZSTD_wildcopy(ctx->op, spreadMatch, (ptrdiff_t)matchLen - 8, ZSTD_overlap_src_before_dst);
+                    assert(op < oSeqEnd);
+                    ZSTD_wildcopy(op, spreadMatch, (ptrdiff_t)matchLen - 8, ZSTD_overlap_src_before_dst);
                 }
             }
             ctx->op = oSeqEnd;
@@ -1820,10 +1827,10 @@ ZSTD_decompressSequences2_end(ZSTD_DecompressSequences_Registers* ctx, size_t nb
         DEBUGLOG(2, "end seq: pos=%zu ll=%u ml=%u off=%u", (size_t)(ctx->op - ctx->prefixStart), litLen, matchLen, offset);
 
         {
-            BYTE const* const iLitEnd = ctx->lits + litLen;
-            BYTE* const oLitEnd = ctx->op + litLen;
-            BYTE* const oSeqEnd = oLitEnd + matchLen;
-            BYTE* const match = oLitEnd - offset;
+            MyU8 const* const iLitEnd = ctx->lits + litLen;
+            MyU8* const oLitEnd = ctx->op + litLen;
+            MyU8* const oSeqEnd = oLitEnd + matchLen;
+            MyU8* const match = oLitEnd - offset;
 
             if (UNLIKELY((iLitEnd > ctx->litsEnd) | (oSeqEnd > ctx->oEnd) | (match < ctx->prefixStart))) {
                 DEBUGLOG(2, "(%d | %d | %d)", (iLitEnd > ctx->litsEnd), (oSeqEnd > ctx->oEnd), (match < ctx->prefixStart));
@@ -1836,11 +1843,11 @@ ZSTD_decompressSequences2_end(ZSTD_DecompressSequences_Registers* ctx, size_t nb
 
             FORWARD_IF_ERROR(ZSTD_DStream_reloadEnd(&ctx->bitd), "");
 
-            ZSTD_safecopy(ctx->op, ctx->oLimit, ctx->lits, litLen, ZSTD_no_overlap);
+            ZSTD_safecopy(&ctx->op->u8, &ctx->oLimit->u8, &ctx->lits->u8, litLen, ZSTD_no_overlap);
             ctx->op = oLitEnd;
             ctx->lits = iLitEnd;
 
-            ZSTD_safecopy(ctx->op, ctx->oLimit, match, (ptrdiff_t)matchLen, ZSTD_overlap_src_before_dst);
+            ZSTD_safecopy(&ctx->op->u8, &ctx->oLimit->u8, &match->u8, (ptrdiff_t)matchLen, ZSTD_overlap_src_before_dst);
             ctx->op = oSeqEnd;
         }
 
@@ -1870,7 +1877,7 @@ static int ZSTD_canUseDecompressSequences2(ZSTD_DCtx const* dctx)
 // single segment
 // no repcode 1 or 2 (ll0 rep0 is allowed)
 // sequence fits in 55 bits total
-static size_t
+static BMI2_TARGET_ATTRIBUTE size_t
 ZSTD_decompressSequences2(ZSTD_DCtx* dctx,
                                  void* dst, size_t maxDstSize,
                            const void* seqStart, size_t seqSize, int nbSeq,
@@ -1879,13 +1886,13 @@ ZSTD_decompressSequences2(ZSTD_DCtx* dctx,
 {
     ZSTD_DecompressSequences_Registers ctx = {
         .entropy = &dctx->entropy,
-        .op = (uint8_t*)dst,
-        .oLimit = (uint8_t*)dst + maxDstSize - WILDCOPY_OVERLENGTH,
-        .oEnd = (uint8_t*)dst + maxDstSize,
-        .lits = dctx->litPtr,
-        .litsLimit = dctx->litPtr + dctx->litSize - WILDCOPY_OVERLENGTH,
-        .litsEnd = dctx->litPtr + dctx->litSize,
-        .prefixStart = (uint8_t const*)dctx->prefixStart,
+        .op = (MyU8*)dst,
+        .oLimit = (MyU8*)dst + maxDstSize - WILDCOPY_OVERLENGTH,
+        .oEnd = (MyU8*)dst + maxDstSize,
+        .lits = (MyU8 const*)dctx->litPtr,
+        .litsLimit = (MyU8 const*)dctx->litPtr + dctx->litSize - WILDCOPY_OVERLENGTH,
+        .litsEnd = (MyU8 const*)dctx->litPtr + dctx->litSize,
+        .prefixStart = (MyU8 const*)dctx->prefixStart,
         .savedOffset = 0,
     };
     (void)isLongOffset;
@@ -1932,7 +1939,7 @@ ZSTD_decompressSequences2(ZSTD_DCtx* dctx,
             ctx.op += lastLLSize;
         }
     }
-    return (size_t)(ctx.op - (uint8_t*)dst);
+    return (size_t)(ctx.op - (MyU8*)dst);
 }
 
 FORCE_INLINE_TEMPLATE size_t
