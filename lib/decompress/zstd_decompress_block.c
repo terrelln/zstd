@@ -1728,6 +1728,8 @@ U32 ZSTD_decodeOffset(ZSTD_DecompressSequences_Registers* ctx, ZSTD_seqSymbol of
 
 #define ZSTD_MAX_SEQ_BITS (64 - 7 - 2)
 
+size_t ZSTD_decompressSequences2_asm(ZSTD_DecompressSequences_Registers* ctx);
+
 FORCE_INLINE_TEMPLATE BMI2_TARGET_ATTRIBUTE size_t
 ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
 {
