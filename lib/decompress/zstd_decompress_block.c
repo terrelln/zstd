@@ -1752,6 +1752,13 @@ ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
         if (UNLIKELY(llDInfo.nbAdditionalBits > 0)) {
             litLen += ZSTD_DStream_readBits(&ctx->bitd, llDInfo.nbAdditionalBits);
         }
+
+        ctx->llState = (size_t)llDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, llDInfo.nbBits);
+        ctx->mlState = (size_t)mlDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, mlDInfo.nbBits);
+        ctx->ofState = (size_t)ofDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, ofDInfo.nbBits);
+
+        ZSTD_DStream_reload(&ctx->bitd);
+
         DEBUGLOG(2, "body bits: ll=%u ml=%u off=%u", llDInfo.nbAdditionalBits, mlDInfo.nbAdditionalBits, ofDInfo.nbAdditionalBits);
         DEBUGLOG(2, "body seq: pos=%zu ll=%u ml=%u off=%u", (size_t)(ctx->op - ctx->prefixStart), litLen, matchLen, offset);
         {
@@ -1768,12 +1775,6 @@ ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
                 break;
             }
             ++nbSeq;
-
-            ctx->llState = (size_t)llDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, llDInfo.nbBits);
-            ctx->mlState = (size_t)mlDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, mlDInfo.nbBits);
-            ctx->ofState = (size_t)ofDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, ofDInfo.nbBits);
-
-            ZSTD_DStream_reload(&ctx->bitd);
 
             ZSTD_copy16(ctx->op, ctx->lits);
             if (UNLIKELY(litLen > 16)) {
@@ -1827,6 +1828,12 @@ ZSTD_decompressSequences2_end(ZSTD_DecompressSequences_Registers* ctx, size_t nb
             if (UNLIKELY(llDInfo.nbAdditionalBits > 0)) {
                 litLen += ZSTD_DStream_readBits(&ctx->bitd, llDInfo.nbAdditionalBits);
             }
+            
+            ctx->llState = (size_t)llDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, llDInfo.nbBits);
+            ctx->mlState = (size_t)mlDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, mlDInfo.nbBits);
+            ctx->ofState = (size_t)ofDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, ofDInfo.nbBits);
+
+            FORWARD_IF_ERROR(ZSTD_DStream_reloadEnd(&ctx->bitd), "");
         } else {
             DEBUGLOG(2, "using saved values");
             matchLen = ctx->savedMatchLen;
@@ -1847,12 +1854,6 @@ ZSTD_decompressSequences2_end(ZSTD_DecompressSequences_Registers* ctx, size_t nb
                 DEBUGLOG(2, "(%d | %d | %d)", (iLitEnd > ctx->litsEnd), (oSeqEnd > ctx->oEnd), (match < ctx->prefixStart));
                 RETURN_ERROR(corruption_detected, "Sequence is corrupt!");
             }
-
-            ctx->llState = (size_t)llDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, llDInfo.nbBits);
-            ctx->mlState = (size_t)mlDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, mlDInfo.nbBits);
-            ctx->ofState = (size_t)ofDInfo.nextState + ZSTD_DStream_readBitsSlow(&ctx->bitd, ofDInfo.nbBits);
-
-            FORWARD_IF_ERROR(ZSTD_DStream_reloadEnd(&ctx->bitd), "");
 
             ZSTD_safecopy(&ctx->op->u8, &ctx->oLimit->u8, &ctx->lits->u8, litLen, ZSTD_no_overlap);
             ctx->op = oLitEnd;

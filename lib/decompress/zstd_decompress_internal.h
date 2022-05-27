@@ -71,6 +71,13 @@ static UNUSED_ATTR const U32 ML_base[MaxML+1] = {
      U32  baseValue;
  } ZSTD_seqSymbol;
 
+ typedef struct {
+     BYTE nbAdditionalBits;
+     BYTE nbBits;
+     U16  nextState;
+     U32  baseValue;
+ } ZSTD_seqSymbol2;
+
  #define SEQSYMBOL_TABLE_SIZE(log)   (1 + (1 << (log)))
 
 #define ZSTD_BUILD_FSE_TABLE_WKSP_SIZE (sizeof(S16) * (MaxSeq + 1) + (1u << MaxFSELog) + sizeof(U64))
