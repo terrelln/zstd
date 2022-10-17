@@ -249,7 +249,6 @@ ZSTD_decompressSequences2_asm:
     cmpq $16, %rax
     jb .L_short_offset_match:
 
-    /* TODO: Check for short offset */
     movups %xmm0, (%op)
     movups %xmm1 16(%op)
 

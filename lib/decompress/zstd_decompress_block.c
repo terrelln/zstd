@@ -27,6 +27,7 @@
 #include "zstd_ddict.h"  /* ZSTD_DDictDictContent */
 #include "zstd_decompress_block.h"
 #include "../common/bits.h"  /* ZSTD_highbit32 */
+#include "zstd_decompress_block_macros.h"
 
 /*_*******************************************************
 *  Macros
@@ -321,7 +322,7 @@ size_t ZSTD_decodeLiteralsBlock(ZSTD_DCtx* dctx,
  * - pretify output, report below, test with fuzzer to ensure it's correct */
 
 /* Default FSE distribution table for Literal Lengths */
-static const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1] = {
+static const ZSTD_seqSymbolD LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1] = {
      {  1,  1,  1, LL_DEFAULTNORMLOG},  /* header : fastMode, tableLog */
      /* nextState, nbAddBits, nbBits, baseVal */
      {  0,  0,  4,    0},  { 16,  0,  4,    0},
@@ -359,7 +360,7 @@ static const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1] = {
 };   /* LL_defaultDTable */
 
 /* Default FSE distribution table for Offset Codes */
-static const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1] = {
+static const ZSTD_seqSymbolD OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1] = {
     {  1,  1,  1, OF_DEFAULTNORMLOG},  /* header : fastMode, tableLog */
     /* nextState, nbAddBits, nbBits, baseVal */
     {  0,  0,  5,    0},     {  0,  6,  4,   61},
@@ -382,7 +383,7 @@ static const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1] = {
 
 
 /* Default FSE distribution table for Match Lengths */
-static const ZSTD_seqSymbol ML_defaultDTable[(1<<ML_DEFAULTNORMLOG)+1] = {
+static const ZSTD_seqSymbolD ML_defaultDTable[(1<<ML_DEFAULTNORMLOG)+1] = {
     {  1,  1,  1, ML_DEFAULTNORMLOG},  /* header : fastMode, tableLog */
     /* nextState, nbAddBits, nbBits, baseVal */
     {  0,  0,  6,    3},  {  0,  0,  4,    4},
@@ -552,7 +553,7 @@ void ZSTD_buildFSETable_body(ZSTD_seqSymbol* dt,
         for (u=0; u<tableSize; u++) {
             U32 const symbol = tableDecode[u].baseValue;
             U32 const nextState = symbolNext[symbol]++;
-            tableDecode[u].nbBits = (BYTE) (tableLog - ZSTD_highbit32(nextState) );
+            tableDecode[u].nbBits = (BYTE) -(tableLog - ZSTD_highbit32(nextState) );
             tableDecode[u].nextState = (U16) ( (nextState << tableDecode[u].nbBits) - tableSize);
             assert(nbAdditionalBits[symbol] < 255);
             tableDecode[u].nbAdditionalBits = nbAdditionalBits[symbol];
@@ -607,7 +608,7 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
                                  symbolEncodingType_e type, unsigned max, U32 maxLog,
                                  const void* src, size_t srcSize,
                                  const U32* baseValue, const BYTE* nbAdditionalBits,
-                                 const ZSTD_seqSymbol* defaultTable, U32 flagRepeatTable,
+                                 const ZSTD_seqSymbolD* defaultTable, U32 flagRepeatTable,
                                  int ddictIsCold, int nbSeq, U32* wksp, size_t wkspSize,
                                  int bmi2)
 {
@@ -627,8 +628,18 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
         {
             const void* ptr = defaultTable;
             const ZSTD_seqSymbol_header* const DTableH = (const ZSTD_seqSymbol_header*)ptr;
+            size_t const tableSize = (1 + (1 << DTableH->tableLog));
             *DTablePtr = DTableSpace;
-            memcpy(DTableSpace, defaultTable, (1 + (1 << DTableH->tableLog)) * sizeof(ZSTD_seqSymbol));
+            if (1) {
+                for (size_t i = 0; i < tableSize; ++i) {
+                    DTableSpace[i].nbAdditionalBits = defaultTable[i].nbAdditionalBits;
+                    DTableSpace[i].nbBits = (BYTE)-defaultTable[i].nbBits;
+                    DTableSpace[i].nextState = defaultTable[i].nextState;
+                    DTableSpace[i].baseValue = defaultTable[i].baseValue;
+                }
+            } else {
+                memcpy(DTableSpace, defaultTable, tableSize * sizeof(ZSTD_seqSymbol));
+            }
             return 0;
         }
     case set_repeat:
@@ -1729,6 +1740,41 @@ U32 ZSTD_decodeOffset(ZSTD_DecompressSequences_Registers* ctx, ZSTD_seqSymbol of
 #define ZSTD_MAX_SEQ_BITS (64 - 7 - 2)
 
 size_t ZSTD_decompressSequences2_asm(ZSTD_DecompressSequences_Registers* ctx);
+
+static size_t
+ZSTD_decompressSequences2_asm_body(ZSTD_DecompressSequences_Registers* ctx)
+{
+    /* Validate all of our offset macros. We can't use offsetof in the header file
+     * because it is used in assembly. So simply check that our constants are correct here.
+     */
+    ZSTD_STATIC_ASSERT(ZSTD_ENTROPY_LLTABLE_OFF == offsetof(ZSTD_entropyDTables_t, LLTable));
+    ZSTD_STATIC_ASSERT(ZSTD_ENTROPY_MLTABLE_OFF == offsetof(ZSTD_entropyDTables_t, MLTable));
+    ZSTD_STATIC_ASSERT(ZSTD_ENTROPY_OFTABLE_OFF == offsetof(ZSTD_entropyDTables_t, OFTable));
+    ZSTD_STATIC_ASSERT(ZSTD_ENTROPY_REPCODE1_OFF == offsetof(ZSTD_entropyDTables_t, rep));
+    ZSTD_STATIC_ASSERT(ZSTD_ENTROPY_REPCODE2_OFF == ZSTD_ENTROPY_REPCODE1_OFF + 4);
+    ZSTD_STATIC_ASSERT(ZSTD_ENTROPY_REPCODE3_OFF == ZSTD_ENTROPY_REPCODE2_OFF + 4);
+
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_ENTROPY_OFF == offsetof(ZSTD_DecompressSequences_Registers, entropy));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_BITCACHE_OFF == offsetof(ZSTD_DecompressSequences_Registers, bitd) + offsetof(ZSTD_DStream_t, bitContainer));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_BITPTR_OFF == offsetof(ZSTD_DecompressSequences_Registers, bitd) + offsetof(ZSTD_DStream_t, ptr));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_BITLIMIT_OFF == offsetof(ZSTD_DecompressSequences_Registers, bitd) + offsetof(ZSTD_DStream_t, limit));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_BITSTART_OFF == offsetof(ZSTD_DecompressSequences_Registers, bitd) + offsetof(ZSTD_DStream_t, start));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_LLSTATE_OFF == offsetof(ZSTD_DecompressSequences_Registers, llState));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_MLSTATE_OFF == offsetof(ZSTD_DecompressSequences_Registers, mlState));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_OFSTATE_OFF == offsetof(ZSTD_DecompressSequences_Registers, ofState));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_OP_OFF == offsetof(ZSTD_DecompressSequences_Registers, op));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_OLIMIT_OFF == offsetof(ZSTD_DecompressSequences_Registers, oLimit));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_OEND_OFF == offsetof(ZSTD_DecompressSequences_Registers, oEnd));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_LITS_OFF == offsetof(ZSTD_DecompressSequences_Registers, lits));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_LITSLIMIT_OFF == offsetof(ZSTD_DecompressSequences_Registers, litsLimit));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_LITSEND_OFF == offsetof(ZSTD_DecompressSequences_Registers, litsEnd));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_PREFIXSTART_OFF == offsetof(ZSTD_DecompressSequences_Registers, prefixStart));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_SAVEDOFFSET_OFF == offsetof(ZSTD_DecompressSequences_Registers, savedOffset));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_SAVEDLITLEN_OFF == offsetof(ZSTD_DecompressSequences_Registers, savedLitLen));
+    ZSTD_STATIC_ASSERT(ZSTD_ARG_SAVEDMATCHLEN_OFF == offsetof(ZSTD_DecompressSequences_Registers, savedMatchLen));
+
+    return ZSTD_decompressSequences2_asm(ctx);
+}
 
 FORCE_INLINE_TEMPLATE BMI2_TARGET_ATTRIBUTE size_t
 ZSTD_decompressSequences2_body(ZSTD_DecompressSequences_Registers* ctx)
