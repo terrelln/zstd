@@ -29,7 +29,7 @@ static const ZSTD_compressionParameters ZSTD_defaultCParameters[4][ZSTD_MAX_CLEV
     { 19, 13, 14,  1,  7,  0, ZSTD_fast    },  /* level  1 */
     { 20, 15, 16,  1,  6,  0, ZSTD_fast    },  /* level  2 */
     { 21, 16, 17,  1,  5,  0, ZSTD_dfast   },  /* level  3 */
-    { 21, 18, 18,  1,  5,  0, ZSTD_dfast   },  /* level  4 */
+    { 21, 19, 18,  1,  5,  0, ZSTD_dfast   },  /* level  4 */
     { 21, 18, 19,  3,  5,  2, ZSTD_greedy  },  /* level  5 */
     { 21, 18, 19,  3,  5,  4, ZSTD_lazy    },  /* level  6 */
     { 21, 19, 20,  4,  5,  8, ZSTD_lazy    },  /* level  7 */

@@ -482,9 +482,9 @@ size_t FSE_normalizeCount (short* normalizedCounter, unsigned tableLog,
 
     {   static U32 const rtbTable[] = {     0, 473195, 504333, 520860, 550000, 700000, 750000, 830000 };
         short const lowProbCount = useLowProbCount ? -1 : 1;
-        U64 const scale = 62 - tableLog;
+        U64 const scale = 62 - tableLog - 1;
         U64 const step = ZSTD_div64((U64)1<<62, (U32)total);   /* <== here, one division ! */
-        U64 const vStep = 1ULL<<(scale-20);
+        U64 const vStep = 1ULL<<(scale-21);
         int stillToDistribute = 1<<tableLog;
         unsigned s;
         unsigned largest=0;

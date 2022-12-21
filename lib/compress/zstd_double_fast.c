@@ -229,8 +229,41 @@ _match_stored:
             /* done after iLimit test, as candidates could be > iend-8 */
             {   U32 const indexToInsert = curr+2;
                 hashLong[ZSTD_hashPtr(base+indexToInsert, hBitsL, 8)] = indexToInsert;
+                hashLong[ZSTD_hashPtr(ip-16, hBitsL, 8)] = (U32)(ip-16-base);
+                hashLong[ZSTD_hashPtr(ip-15, hBitsL, 8)] = (U32)(ip-15-base);
+                hashLong[ZSTD_hashPtr(ip-14, hBitsL, 8)] = (U32)(ip-14-base);
+                hashLong[ZSTD_hashPtr(ip-13, hBitsL, 8)] = (U32)(ip-13-base);
+                hashLong[ZSTD_hashPtr(ip-12, hBitsL, 8)] = (U32)(ip-12-base);
+                hashLong[ZSTD_hashPtr(ip-11, hBitsL, 8)] = (U32)(ip-11-base);
+                hashLong[ZSTD_hashPtr(ip-10, hBitsL, 8)] = (U32)(ip-10-base);
+                hashLong[ZSTD_hashPtr(ip-9, hBitsL, 8)] = (U32)(ip-9-base);
+
+                hashLong[ZSTD_hashPtr(ip-8, hBitsL, 8)] = (U32)(ip-8-base);
+                hashLong[ZSTD_hashPtr(ip-7, hBitsL, 8)] = (U32)(ip-7-base);
+                hashLong[ZSTD_hashPtr(ip-6, hBitsL, 8)] = (U32)(ip-6-base);
+                hashLong[ZSTD_hashPtr(ip-5, hBitsL, 8)] = (U32)(ip-5-base);
+                hashLong[ZSTD_hashPtr(ip-4, hBitsL, 8)] = (U32)(ip-4-base);
+                hashLong[ZSTD_hashPtr(ip-3, hBitsL, 8)] = (U32)(ip-3-base);
                 hashLong[ZSTD_hashPtr(ip-2, hBitsL, 8)] = (U32)(ip-2-base);
+                hashLong[ZSTD_hashPtr(ip-1, hBitsL, 8)] = (U32)(ip-1-base);
+
                 hashSmall[ZSTD_hashPtr(base+indexToInsert, hBitsS, mls)] = indexToInsert;
+                hashSmall[ZSTD_hashPtr(ip-16, hBitsS, mls)] = (U32)(ip-16-base);
+                hashSmall[ZSTD_hashPtr(ip-15, hBitsS, mls)] = (U32)(ip-15-base);
+                hashSmall[ZSTD_hashPtr(ip-14, hBitsS, mls)] = (U32)(ip-14-base);
+                hashSmall[ZSTD_hashPtr(ip-13, hBitsS, mls)] = (U32)(ip-13-base);
+                hashSmall[ZSTD_hashPtr(ip-12, hBitsS, mls)] = (U32)(ip-12-base);
+                hashSmall[ZSTD_hashPtr(ip-11, hBitsS, mls)] = (U32)(ip-11-base);
+                hashSmall[ZSTD_hashPtr(ip-10, hBitsS, mls)] = (U32)(ip-10-base);
+                hashSmall[ZSTD_hashPtr(ip-9, hBitsS, mls)] = (U32)(ip-9-base);
+
+                hashSmall[ZSTD_hashPtr(ip-8, hBitsS, mls)] = (U32)(ip-8-base);
+                hashSmall[ZSTD_hashPtr(ip-7, hBitsS, mls)] = (U32)(ip-7-base);
+                hashSmall[ZSTD_hashPtr(ip-6, hBitsS, mls)] = (U32)(ip-6-base);
+                hashSmall[ZSTD_hashPtr(ip-5, hBitsS, mls)] = (U32)(ip-5-base);
+                hashSmall[ZSTD_hashPtr(ip-4, hBitsS, mls)] = (U32)(ip-4-base);
+                hashSmall[ZSTD_hashPtr(ip-3, hBitsS, mls)] = (U32)(ip-3-base);
+                hashSmall[ZSTD_hashPtr(ip-2, hBitsS, mls)] = (U32)(ip-2-base);
                 hashSmall[ZSTD_hashPtr(ip-1, hBitsS, mls)] = (U32)(ip-1-base);
             }
 

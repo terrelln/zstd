@@ -23,7 +23,7 @@ void ZSTD_fillHashTable(ZSTD_matchState_t* ms,
     const BYTE* const base = ms->window.base;
     const BYTE* ip = base + ms->nextToUpdate;
     const BYTE* const iend = ((const BYTE*)end) - HASH_READ_SIZE;
-    const U32 fastHashFillStep = 3;
+    const U32 fastHashFillStep = 1;
 
     /* Always insert every fastHashFillStep position into the hash table.
      * Insert the other positions if their hash entry is empty.
@@ -289,7 +289,7 @@ _match: /* Requires: ip0, match0, offcode */
 
     /* write next hash table entry */
     if (ip1 < ip0) {
-        hashTable[hash1] = (U32)(ip1 - base);
+        hashTable[hash1] = (U32)(ip1  - base);
     }
 
     /* Fill table and check for immediate repcode. */
@@ -297,7 +297,27 @@ _match: /* Requires: ip0, match0, offcode */
         /* Fill Table */
         assert(base+current0+2 > istart);  /* check base overflow */
         hashTable[ZSTD_hashPtr(base+current0+2, hlog, mls)] = current0+2;  /* here because current+2 could be > iend-8 */
+        hashTable[ZSTD_hashPtr(ip0-20, hlog, mls)] = (U32)(ip0-20-base);
+        hashTable[ZSTD_hashPtr(ip0-19, hlog, mls)] = (U32)(ip0-19-base);
+        hashTable[ZSTD_hashPtr(ip0-18, hlog, mls)] = (U32)(ip0-18-base);
+        hashTable[ZSTD_hashPtr(ip0-17, hlog, mls)] = (U32)(ip0-17-base);
+
+        hashTable[ZSTD_hashPtr(ip0-16, hlog, mls)] = (U32)(ip0-16-base);
+        hashTable[ZSTD_hashPtr(ip0-15, hlog, mls)] = (U32)(ip0-15-base);
+        hashTable[ZSTD_hashPtr(ip0-14, hlog, mls)] = (U32)(ip0-14-base);
+        hashTable[ZSTD_hashPtr(ip0-13, hlog, mls)] = (U32)(ip0-13-base);
+        hashTable[ZSTD_hashPtr(ip0-12, hlog, mls)] = (U32)(ip0-12-base);
+        hashTable[ZSTD_hashPtr(ip0-11, hlog, mls)] = (U32)(ip0-11-base);
+        hashTable[ZSTD_hashPtr(ip0-10, hlog, mls)] = (U32)(ip0-10-base);
+        hashTable[ZSTD_hashPtr(ip0-9, hlog, mls)] = (U32)(ip0-9-base);
+        hashTable[ZSTD_hashPtr(ip0-8, hlog, mls)] = (U32)(ip0-8-base);
+        hashTable[ZSTD_hashPtr(ip0-7, hlog, mls)] = (U32)(ip0-7-base);
+        hashTable[ZSTD_hashPtr(ip0-6, hlog, mls)] = (U32)(ip0-6-base);
+        hashTable[ZSTD_hashPtr(ip0-5, hlog, mls)] = (U32)(ip0-5-base);
+        hashTable[ZSTD_hashPtr(ip0-4, hlog, mls)] = (U32)(ip0-4-base);
+        hashTable[ZSTD_hashPtr(ip0-3, hlog, mls)] = (U32)(ip0-3-base);
         hashTable[ZSTD_hashPtr(ip0-2, hlog, mls)] = (U32)(ip0-2-base);
+        hashTable[ZSTD_hashPtr(ip0-1, hlog, mls)] = (U32)(ip0-1-base);
 
         if (rep_offset2 > 0) { /* rep_offset2==0 means rep_offset2 is invalidated */
             while ( (ip0 <= ilimit) && (MEM_read32(ip0) == MEM_read32(ip0 - rep_offset2)) ) {
