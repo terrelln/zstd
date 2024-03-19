@@ -2403,3 +2403,124 @@ size_t ZSTD_decompressStream_simpleArgs (
         return cErr;
     }
 }
+
+static size_t ZSTD_extractSequencesFromBlock(
+    ZSTD_DCtx* dctx,
+    ZSTD_Sequence* outSeqs, size_t outSeqsSize,
+    const BYTE* ip, size_t blockSize)
+{
+
+}
+
+static size_t ZSTD_extractSequencesFromFrame(
+    ZSTD_DCtx* dctx,
+    ZSTD_Sequence* outSeqs, size_t outSeqsSize,
+    const void* compressed, size_t compressedSize)
+{
+    const BYTE* const istart = (const BYTE*)compressed;
+    const BYTE* ip = istart;
+    size_t remainingSrcSize = compressedSize;
+    ZSTD_Sequence* outSeqPtr = outSeqs;
+    ZSTD_Sequence* const outSeqEnd = outSeqs + outSeqsSize;
+
+    DEBUGLOG(4, "ZSTD_extractSequencesFromFrame (srcSize:%i)", (int)compressedSize);
+
+    /* Begin the frame */
+    FORWARD_IF_ERROR(ZSTD_decompressBegin_usingDDict(dctx, ZSTD_getDDict(dctx)) "");
+
+    /* check */
+    RETURN_ERROR_IF(
+        remainingSrcSize < ZSTD_FRAMEHEADERSIZE_MIN(dctx->format)+ZSTD_blockHeaderSize,
+        srcSize_wrong, "");
+
+    /* Frame Header */
+    {   size_t const frameHeaderSize = ZSTD_frameHeaderSize_internal(
+                ip, ZSTD_FRAMEHEADERSIZE_PREFIX(dctx->format), dctx->format);
+        if (ZSTD_isError(frameHeaderSize)) return frameHeaderSize;
+        RETURN_ERROR_IF(remainingSrcSize < frameHeaderSize+ZSTD_blockHeaderSize,
+                        srcSize_wrong, "");
+        FORWARD_IF_ERROR( ZSTD_decodeFrameHeader(dctx, ip, frameHeaderSize) , "");
+        ip += frameHeaderSize; remainingSrcSize -= frameHeaderSize;
+    }
+
+    /* Loop on each block */
+    while (1) {
+        size_t decodedSize;
+        blockProperties_t blockProperties;
+        size_t const cBlockSize = ZSTD_getcBlockSize(ip, remainingSrcSize, &blockProperties);
+        if (ZSTD_isError(cBlockSize)) return cBlockSize;
+
+        ip += ZSTD_blockHeaderSize;
+        remainingSrcSize -= ZSTD_blockHeaderSize;
+        RETURN_ERROR_IF(cBlockSize > remainingSrcSize, srcSize_wrong, "");
+
+        switch(blockProperties.blockType)
+        {
+        case bt_compressed:
+            assert(dctx->isFrameDecompression == 1);
+            FORWARD_IF_ERROR(ZSTD_extractSequencesFromBlock(dctx, outSeqPtr, outSeqEnd, ip, cBlockSize));
+            break;
+        case bt_raw:
+            /* Block is just a block delimiter */
+            RETURN_ERROR_IF(outSeqPtr == outSeqEnd, dstSize_tooSmall, "");
+            memset(outSeqPtr, 0, sizeof(*outSeqPtr));
+            outSeqPtr->litLength = cBlockSize;
+            ++outSeqPtr;
+            break;
+        case bt_rle :
+            if (blockProperties.origSize < ZSTD_MINMATCH_MIN) {
+                /* Must use an uncompressed sequence for tiny blocks */
+                RETURN_ERROR_IF(outSeqPtr == outSeqEnd, dstSize_tooSmall, "");
+                memset(outSeqPtr, 0, sizeof(*outSeqPtr));
+                outSeqPtr->litLength = blockProperties.origSize;
+                ++outSeqPtr;
+            } else {
+                /* Match of offset=1 + block delimiter */
+                RETURN_ERROR_IF((outSeqEnd - outSeqPtr) < 2, dstSize_tooSmall, "");
+                outSeqPtr->offset = 1;
+                outSeqPtr->litLength = 1;
+                outSeqPtr->matchLength = blockProperties.origSize - 1;
+                outSeqPtr->rep = 0;
+                ++outSeqPtr;
+
+                memset(outSeqPtr, 0, sizeof(*outSeqPtr));
+                ++outSeqPtr;
+            }
+            break;
+        case bt_reserved:
+        default:
+            RETURN_ERROR(corruption_detected, "invalid block type");
+        }
+        assert(ip != NULL);
+        ip += cBlockSize;
+        remainingSrcSize -= cBlockSize;
+        if (blockProperties.lastBlock) break;
+    }
+
+    return (size_t)(outSeqPtr - outSeqs);
+}
+
+size_t ZSTD_extractSequences(
+    ZSTD_Sequence* outSeqs, size_t outSeqsSize,
+    const void* compressed, size_t compressedSize,
+    void const* data, size_t dataSize,
+    void const* dict, size_t dictSize)
+{
+    /* Validate that we have exactly one zstd frame */
+    ZSTD_frameHeader zfh;
+    RETURN_ERROR_IF(ZSTD_isLegacy(compressed, compressedSize), version_unsupported, "Legacy not supported");
+    if (ZSTD_getFrameHeader_advanced(&zfh, compressed, compressedSize, ZSTD_f_zstd1) != 0) {
+        return ERROR(corruption_detected);
+    }
+    RETURN_ERROR_IF(zfh.frameType != ZSTD_frame, prefix_unknown, "Skippable frames not supported");
+    RETURN_ERROR_IF(ZSTD_findFrameCompressedSize(compressed, compressedSize) != compressedSize, srcSize_wrong, "Multiple frames not supported");
+
+    {
+        ZSTD_DCtx* const dctx = ZSTD_createDCtx();
+        size_t ret;
+        FORWARD_IF_ERROR(ZSTD_DCtx_loadDictionary(dctx, dict, dictSize));
+        ret = ZSTD_extractSequencesFromFrame(dctx, outSeqs, outSeqsSize, compressed, compressedSize, data, dataSize);
+        ZSTD_freeDCtx(dctx);
+    }
+    return ret;
+}

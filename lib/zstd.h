@@ -1537,6 +1537,15 @@ typedef enum {
  */
 ZSTDLIB_STATIC_API size_t ZSTD_sequenceBound(size_t srcSize);
 
+/*! ZSTD_extractSequences()
+ *
+ */
+ZSTDLIB_STATIC_API size_t ZSTD_extractSequences(
+    ZSTD_DCtx* dctx,
+    ZSTD_Sequence* outSeqs, size_t outSeqsSize,
+    const void* compressed, size_t compressedSize,
+    void const* data, size_t dataSize);
+
 /*! ZSTD_generateSequences() :
  * WARNING: This function is meant for debugging and informational purposes ONLY!
  * Its implementation is flawed, and it will be deleted in a future version.
