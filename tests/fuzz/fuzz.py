@@ -65,6 +65,7 @@ TARGET_INFO = {
     'seekable_roundtrip': TargetInfo(InputType.RAW_DATA),
     'huf_round_trip': TargetInfo(InputType.RAW_DATA),
     'huf_decompress': TargetInfo(InputType.RAW_DATA),
+    'generate_sequences': TargetInfo(InputType.RAW_DATA),
 }
 TARGETS = list(TARGET_INFO.keys())
 ALL_TARGETS = TARGETS + ['all']
