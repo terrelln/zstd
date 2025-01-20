@@ -1,0 +1,3 @@
+[submodule "contrib/doc/mkdocstrings-zstd"]
+	path = contrib/doc/mkdocstrings-zstd
+	url = https://github.com/terrelln/mkdocstrings-zstd.git
