@@ -1,0 +1,90 @@
+site_name: 'Zstandard'
+
+docs_dir: ../../doc
+
+site_dir: ../../build-docs/site
+
+repo_url: https://github.com/facebook/zstd
+
+extra_css:
+  - zstd.css
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - Basics: user-guide/basics.md
+    - Simple: user-guide/simple.md
+    - Advanced: user-guide/advanced.md
+
+theme:
+  name: material
+  logo: images/zstd_logo86.png
+  favicon: images/zstd_logo86.png
+  features:
+    - search.suggest
+    - navigation.tabs
+    - navigation.top
+    # - toc.integrate
+  
+  palette:
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default 
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - md_in_html
+  - pymdownx.highlight:
+      use_pygments: true
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: zstd
+      handlers:
+        zstd:
+          source_directory: "../../lib/"
+          build_directory: "../../build-docs/"
+          sources: [
+            "zstd.h",
+            "zstd_errors.h",
+          ]
+          predefined:
+            - ZSTD_STATIC_LINKING_ONLY
+          options:
+            clang_format_based_on_style: "Google"
+            heading_level: 3
+
+# exclude_docs: ChangeLog-old.md
+
+extra:
+  generator: false
+#   version:
+#     provider: mike
