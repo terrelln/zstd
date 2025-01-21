@@ -151,12 +151,21 @@ ZSTDLIB_API const char* ZSTD_versionString(void);
 /***************************************
 *  Simple Core API
 ***************************************/
-/*! ZSTD_compress() :
- *  Compresses `src` content as a single zstd compressed frame into already allocated `dst`.
- *  NOTE: Providing `dstCapacity >= ZSTD_compressBound(srcSize)` guarantees that zstd will have
- *        enough space to successfully compress the data.
- *  @return : compressed size written into `dst` (<= `dstCapacity),
- *            or an error code if it fails (which can be tested using ZSTD_isError()). */
+/*!
+ * Compresses @p src using the given @p compressionLevel and writes the result into @p dst.
+ *
+ * @param src The data to compress of size @p srcSize.
+ * @param dst The output buffer of isze @p dstCapacity.
+ *
+ * @returns The compressed size or an error that can be checked with [ZSTD_isError()][ZSTD_isError].
+ *
+ * @note Compression is guaranteed to succeed (with the exception of OOMs) if
+ *       @p dstCapacity is at least `ZSTD_compressBound(srcSize)`.
+ *
+ * @note It is common to use @p srcSize as the @p dstCapacity. In this case you should check to see
+ *       if `ZSTD_isError(ret) && ZSTD_getErrorCode(ret) == ZSTD_error_dstSize_tooSmall` then the
+ *       @p src wasn't compressible.
+ */
 ZSTDLIB_API size_t ZSTD_compress( void* dst, size_t dstCapacity,
                             const void* src, size_t srcSize,
                                   int compressionLevel);
