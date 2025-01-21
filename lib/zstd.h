@@ -165,6 +165,8 @@ ZSTDLIB_API const char* ZSTD_versionString(void);
  * @note It is common to use @p srcSize as the @p dstCapacity. In this case you should check to see
  *       if `ZSTD_isError(ret) && ZSTD_getErrorCode(ret) == ZSTD_error_dstSize_tooSmall` then the
  *       @p src wasn't compressible.
+ *
+ * @warning This is a warning!!!
  */
 ZSTDLIB_API size_t ZSTD_compress( void* dst, size_t dstCapacity,
                             const void* src, size_t srcSize,
