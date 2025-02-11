@@ -7,6 +7,7 @@
  * in the COPYING file in the root directory of this source tree).
  * You may select, at your option, one of the above-listed licenses.
  */
+#include <stdio.h>
 
 /*-*************************************
 *  Dependencies
@@ -2382,6 +2383,7 @@ ZSTD_resetCCtx_byAttachingCDict(ZSTD_CCtx* cctx,
             /* prep working match state so dict matches never have negative indices
              * when they are translated to the working context's index space. */
             if (cctx->blockState.matchState.window.dictLimit < cdictEnd) {
+                printf("triggered\n");
                 cctx->blockState.matchState.window.nextSrc =
                     cctx->blockState.matchState.window.base + cdictEnd;
                 ZSTD_window_clear(&cctx->blockState.matchState.window);
@@ -4548,6 +4550,7 @@ static void ZSTD_overflowCorrectIfNeeded(ZSTD_MatchState_t* ms,
     U32 const cycleLog = ZSTD_cycleLog(params->cParams.chainLog, params->cParams.strategy);
     U32 const maxDist = (U32)1 << params->cParams.windowLog;
     if (ZSTD_window_needOverflowCorrection(ms->window, cycleLog, maxDist, ms->loadedDictEnd, ip, iend)) {
+        printf("overflow correction\n");
         U32 const correction = ZSTD_window_correctOverflow(&ms->window, cycleLog, maxDist, ip);
         ZSTD_STATIC_ASSERT(ZSTD_CHAINLOG_MAX <= 30);
         ZSTD_STATIC_ASSERT(ZSTD_WINDOWLOG_MAX_32 <= 30);

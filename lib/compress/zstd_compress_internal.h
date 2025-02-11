@@ -1121,7 +1121,7 @@ MEM_STATIC U32 ZSTD_window_canOverflowCorrect(ZSTD_window_t const window,
      */
     U32 const dictionaryInvalidated = curr > maxDist + loadedDictEnd;
 
-    return indexLargeEnough && dictionaryInvalidated;
+    return indexLargeEnough;
 }
 
 /**
@@ -1139,7 +1139,7 @@ MEM_STATIC U32 ZSTD_window_needOverflowCorrection(ZSTD_window_t const window,
     U32 const curr = (U32)((BYTE const*)srcEnd - window.base);
     if (ZSTD_WINDOW_OVERFLOW_CORRECT_FREQUENTLY) {
         if (ZSTD_window_canOverflowCorrect(window, cycleLog, maxDist, loadedDictEnd, src)) {
-            return 1;
+            return (rand() % 100000) == 0;
         }
     }
     return curr > ZSTD_CURRENT_MAX;
