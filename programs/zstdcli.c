@@ -825,8 +825,78 @@ typedef enum { zom_compress, zom_decompress, zom_test, zom_bench, zom_train, zom
 # define MAXCLEVEL  ZSTD_maxCLevel()
 #endif
 
+int hook(void)
+{
+    FILE* const dictFile = fopen("dictionary", "r");
+    FILE* const srcFile = fopen("original", "r");
+
+    size_t const dictSize = 262144;
+    size_t const srcSize = 1402;
+
+    char* const dict = malloc(dictSize);
+    char* const src = malloc(srcSize);
+    char* const compressed = malloc(srcSize);
+    char* const roundTripped = malloc(srcSize);
+
+    fread(dict, 1, dictSize, dictFile);
+    fread(src, 1, srcSize, srcFile);
+
+    fclose(dictFile);
+    fclose(srcFile);
+
+    ZSTD_CCtx* cctx = ZSTD_createCCtx();
+    ZSTD_DCtx* dctx = ZSTD_createDCtx();
+
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 1);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_contentSizeFlag, 0);
+    ZSTD_CCtx_loadDictionary(cctx, dict, dictSize);
+
+    ZSTD_DCtx_loadDictionary(dctx, dict, dictSize);
+    uint64_t processed = 0, checkpoint = 0;
+    size_t lastCSize = 0;
+    for (size_t i = 0;; ++i) {
+        size_t randSrcSize = rand() % (srcSize + 1);
+        size_t const cSize = ZSTD_compress2(cctx, compressed, srcSize, src, randSrcSize);
+        if (ZSTD_isError(cSize)) {
+            printf("compression failed: %s\n", ZSTD_getErrorName(cSize));
+            break;
+        }
+        if (i == 0) {
+            printf("compressed size: %zu\n", cSize);
+        }
+        processed += randSrcSize;
+        if (processed - checkpoint > 1024 * 1024 * 1024) {
+            printf("processed %llu MiB (compressed size %zu)\n", (unsigned long long)processed >> 20, cSize);
+            checkpoint = processed;
+            lastCSize = cSize;
+        }
+
+        size_t const rSize = ZSTD_decompressDCtx(dctx, roundTripped, srcSize, compressed, cSize);
+        if (ZSTD_isError(rSize)) {
+            printf("decompression failed: %s\n", ZSTD_getErrorName(rSize));
+            break;
+        }
+        if (rSize != randSrcSize) {
+            printf("decompression produced wrong size\n");
+            break;
+        }
+
+        if (memcmp(src, roundTripped, randSrcSize) != 0) {
+            printf("round trip failed\n");
+            break;
+        }
+    }
+
+    ZSTD_freeDCtx(dctx);
+    ZSTD_freeCCtx(cctx);
+    free(src);
+    free(dict);
+}
+
 int main(int argCount, const char* argv[])
 {
+    return hook();
     int argNb,
         followLinks = 0,
         allowBlockDevices = 0,
@@ -892,6 +962,7 @@ int main(int argCount, const char* argv[])
     BMK_advancedParams_t benchParams = BMK_initAdvancedParams();
 #endif
     ZSTD_ParamSwitch_e literalCompressionMode = ZSTD_ps_auto;
+
 
     /* init */
     checkLibVersion();
