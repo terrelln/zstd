@@ -1271,12 +1271,25 @@ U32 ZSTD_window_update(ZSTD_window_t* window,
         contiguous = 0;
     }
     window->nextSrc = ip + srcSize;
+    if (srcSize < 2000) {
+        printf("ip:%p, srcSize:%zu, dictBase:%p, lowLimit:%u, dictLimit:%u, base:%p, nextSrc:%p\n",
+            ip, srcSize, window->dictBase, window->lowLimit, window->dictLimit, window->base, window->nextSrc);
+    }
     /* if input and dictionary overlap : reduce dictionary (area presumed modified by input) */
     if ( (ip+srcSize > window->dictBase + window->lowLimit)
        & (ip < window->dictBase + window->dictLimit)) {
         ptrdiff_t const highInputIdx = (ip + srcSize) - window->dictBase;
         U32 const lowLimitMax = (highInputIdx > (ptrdiff_t)window->dictLimit) ? window->dictLimit : (U32)highInputIdx;
+        if (highInputIdx <= (ptrdiff_t)window->dictLimit) {
+            printf("happened!\n");
+            // printf("ip:%p, srcSize:%zu, dictBase:%p, lowLimit:%u, dictLimit:%u, base:%p, nextSrc:%p\n",
+            //     ip, srcSize, window->dictBase, window->lowLimit, window->dictLimit, window->base, window->nextSrc);
+            // printf("overlapping (dictLimit = %u, highInputIdx = %u, highInputIdxS = %d, dictLimitS = %d)!\n", window->dictLimit, (U32)highInputIdx, highInputIdx, (int)window->dictLimit);
+            // printf("lowLimit = %u, dictLimit = %u\n", window->lowLimit, window->dictLimit);
+        }
+        printf("overlapping (dictLimit = %u, highInputIdx = %u, highInputIdxS = %d, dictLimitS = %d)!\n", window->dictLimit, (U32)highInputIdx, highInputIdx, (int)window->dictLimit);
         window->lowLimit = lowLimitMax;
+        printf("lowLimit = %u, dictLimit = %u\n", window->lowLimit, window->dictLimit);
         DEBUGLOG(5, "Overlapping extDict and input : new lowLimit = %u", window->lowLimit);
     }
     return contiguous;

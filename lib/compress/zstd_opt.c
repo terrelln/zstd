@@ -584,6 +584,7 @@ void ZSTD_updateTree(ZSTD_matchState_t* ms, const BYTE* ip, const BYTE* iend) {
     ZSTD_updateTree_internal(ms, ip, iend, ms->cParams.minMatch, ZSTD_noDict);
 }
 
+#include <stdio.h>
 FORCE_INLINE_TEMPLATE
 ZSTD_ALLOW_POINTER_OVERFLOW_ATTR
 U32
@@ -784,8 +785,10 @@ ZSTD_insertBtAndGetAllMatches (
             size_t matchLength = MIN(commonLengthSmaller, commonLengthLarger);   /* guaranteed minimum nb of common bytes */
             const BYTE* match = dmsBase + dictMatchIndex;
             matchLength += ZSTD_count_2segments(ip+matchLength, match+matchLength, iLimit, dmsEnd, prefixStart);
-            if (dictMatchIndex+matchLength >= dmsHighLimit)
+            if (dictMatchIndex+matchLength >= dmsHighLimit) {
                 match = base + dictMatchIndex + dmsIndexDelta;   /* to prepare for next usage of match[matchLength] */
+            } else
+                assert(memcmp(match, ip, matchLength) == 0);
 
             if (matchLength > bestLength) {
                 matchIndex = dictMatchIndex + dmsIndexDelta;

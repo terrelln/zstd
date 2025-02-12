@@ -2069,7 +2069,11 @@ ZSTD_reset_matchState(ZSTD_matchState_t* ms,
 #define ZSTD_INDEXOVERFLOW_MARGIN (16 MB)
 static int ZSTD_indexTooCloseToMax(ZSTD_window_t w)
 {
-    return (size_t)(w.nextSrc - w.base) > (ZSTD_CURRENT_MAX - ZSTD_INDEXOVERFLOW_MARGIN);
+    int close = (size_t)(w.nextSrc - w.base) > (ZSTD_CURRENT_MAX - ZSTD_INDEXOVERFLOW_MARGIN);
+    if (close) {
+        printf("too close\n");
+    }
+    return close;
 }
 
 /** ZSTD_dictTooBig():
