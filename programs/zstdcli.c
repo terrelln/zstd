@@ -827,6 +827,8 @@ typedef enum { zom_compress, zom_decompress, zom_test, zom_bench, zom_train, zom
 # define MINCLEVEL  ZSTD_minCLevel()
 # define MAXCLEVEL  ZSTD_maxCLevel()
 #endif
+uint32_t ZSTD_CDict_end(ZSTD_CCtx const* cctx);
+uint32_t ZSTD_CCtx_setWindow(ZSTD_CCtx* cctx, void const* src, uint32_t index);
 
 int hook(void)
 {
@@ -836,10 +838,15 @@ int hook(void)
     size_t const dictSize = 262144;
     size_t const srcSize = 1402;
 
-    char* const dict = malloc(dictSize);
-    char* const src = malloc(srcSize);
+    char* const dict = malloc(dictSize + srcSize);
+    // char* const dict = malloc(dictSize);
+    char* const src = dict + dictSize;
     char* const compressed = malloc(srcSize);
     char* const roundTripped = malloc(srcSize);
+
+    size_t largeSize = 500000;
+    char* const large = calloc(largeSize, 1);
+    char* const largeC = malloc(largeSize);
 
     fread(dict, 1, dictSize, dictFile);
     fread(src, 1, srcSize, srcFile);
@@ -847,19 +854,36 @@ int hook(void)
     fclose(dictFile);
     fclose(srcFile);
 
+    for (size_t off = 0; off < largeSize; off += 1399) {
+        size_t s = MIN(largeSize - off, 1399);
+        memcpy(large + off, src, s);
+    }
+
     ZSTD_CCtx* cctx = ZSTD_createCCtx();
     ZSTD_DCtx* dctx = ZSTD_createDCtx();
 
-    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 1);
+
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 22);
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_contentSizeFlag, 0);
+    
+    // size_t const cSize = ZSTD_compress2(cctx, largeC, largeSize, large, largeSize);
+    // size_t const cSize = ZSTD_compress2(cctx, largeC, largeSize, dict + (dictSize - 261985), 261980);
+
     ZSTD_CCtx_loadDictionary(cctx, dict, dictSize);
 
     ZSTD_DCtx_loadDictionary(dctx, dict, dictSize);
     uint64_t processed = 0, checkpoint = 0;
     size_t lastCSize = 0;
-    for (size_t i = 0;; ++i) {
-        size_t randSrcSize = rand() % (srcSize + 1);
+
+    size_t i;
+    for (i = 0;; ++i) {
+        if (i == 1) {
+            U32 const cdictEnd = ZSTD_CDict_end(cctx);
+            printf("triggering %u\n", cdictEnd);
+            ZSTD_CCtx_setWindow(cctx, src, cdictEnd * 2);
+        }
+        size_t randSrcSize = srcSize;
         size_t const cSize = ZSTD_compress2(cctx, compressed, srcSize, src, randSrcSize);
         if (ZSTD_isError(cSize)) {
             printf("compression failed: %s\n", ZSTD_getErrorName(cSize));
@@ -890,10 +914,11 @@ int hook(void)
             break;
         }
     }
+    printf("%zu\n", i);
 
     ZSTD_freeDCtx(dctx);
     ZSTD_freeCCtx(cctx);
-    free(src);
+    // free(src);
     free(dict);
 }
 

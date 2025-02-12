@@ -2310,6 +2310,21 @@ static int ZSTD_shouldAttachDict(const ZSTD_CDict* cdict,
           && !params->forceWindow ); /* dictMatchState isn't correctly
                                       * handled in _enforceMaxDist */
 }
+uint32_t ZSTD_CDict_end(ZSTD_CCtx const* cctx);
+uint32_t ZSTD_CCtx_setWindow(ZSTD_CCtx* cctx, void const* src, uint32_t index);
+
+uint32_t ZSTD_CDict_end(ZSTD_CCtx const* cctx) {
+    return (U32)( cctx->cdict->matchState.window.nextSrc
+                                  - cctx->cdict->matchState.window.base);
+}
+
+uint32_t ZSTD_CCtx_setWindow(ZSTD_CCtx* cctx, void const* src, uint32_t index)
+{
+    cctx->blockState.matchState.window.nextSrc = (BYTE const*)src;
+    cctx->blockState.matchState.window.base = (BYTE const*)src - index;
+    ZSTD_window_clear(&cctx->blockState.matchState.window);
+}
+
 
 static size_t
 ZSTD_resetCCtx_byAttachingCDict(ZSTD_CCtx* cctx,
@@ -5057,9 +5072,11 @@ static size_t ZSTD_loadZstdDictionary(ZSTD_compressedBlockState_t* bs,
     eSize = ZSTD_loadCEntropy(bs, workspace, dict, dictSize);
     FORWARD_IF_ERROR(eSize, "ZSTD_loadCEntropy failed");
     dictPtr += eSize;
+    fprintf(stderr, "esize %zu\n", eSize);
 
     {
         size_t const dictContentSize = (size_t)(dictEnd - dictPtr);
+        fprintf(stderr, "dcs = %zu\n", dictContentSize);
         FORWARD_IF_ERROR(ZSTD_loadDictionaryContent(
             ms, NULL, ws, params, dictPtr, dictContentSize, dtlm, tfp), "");
     }
